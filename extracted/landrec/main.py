@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.9.2"
+APP_VERSION = "3.9.3"
 
 
 def _warmup_ocr_worker():
@@ -1643,7 +1643,8 @@ def dashboard(user: dict = Depends(get_current_user)):
 
 def _find_tesseract():
     """Locate the Tesseract binary in priority order:
-    pytesseract setting -> PYTESSERACT_PATH -> bundled copy -> system PATH.
+    pytesseract setting -> PYTESSERACT_PATH -> bundled copy -> well-known
+    Windows install locations -> system PATH.
     Returns (path_or_empty, error_or_None, candidates_list)."""
     import shutil
     import pytesseract
@@ -1664,6 +1665,15 @@ def _find_tesseract():
         rp = c if os.path.isabs(c) else (shutil.which(c) or "")
         if rp and os.path.exists(rp):
             return rp, None, candidates
+    # Last resort: the shared locator (well-known Windows install paths
+    # such as C:\Program Files\Tesseract-OCR, which are NOT on PATH).
+    try:
+        from landrec import ocr as _ocr
+        found = _ocr.locate_tesseract()
+        if found:
+            return found, None, candidates + [found]
+    except Exception:  # noqa: BLE001 — detection helper must never 500
+        pass
     return "", ("tesseract binary not found (looked in: %s)"
                 % ", ".join(candidates)), candidates
 

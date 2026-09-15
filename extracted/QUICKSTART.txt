@@ -3,6 +3,51 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.3 (15-Sep-2026) — OCR "broken" fixes (Windows auto-detect + missing language-pack diagnosis) + verified coordinate-input re-digitize
+### 1) OCR: Tesseract is now auto-found on Windows (no PATH needed)
+Windows' default Tesseract install (C:\Program Files\Tesseract-OCR) is NOT on
+PATH, so a `python run.py` / `.exe` start that didn't set PYTESSERACT_PATH
+could not find Tesseract at all. Now the engine searches, in priority order:
+PYTESSERACT_PATH → bundled copy (.exe) → well-known install locations
+(Program Files / Program Files (x86) / LocalAppData / ProgramData/chocolatey)
+→ PATH. The System Status panel + /api/languages use the same locator, so
+the admin can see exactly where Tesseract was found and which packs exist.
+### 2) OCR: "document is in a language this machine can't read" is now DIAGNOSED
+Before: a Hindi/Tamil/Telugu document OCR'd on an English-only Tesseract
+silently produced a garbage record with empty fields — the classic "OCR is
+broken" report, with no clue why.
+Now: the detection pass measures page ink vs. real words produced. A page
+with visible ink that yields almost no real words while common Indic packs
+(hin/ben/tam/tel) are missing gets an explicit diagnosis, shown FIRST in the
+AI-Rescue report and in the verification routing note: "No readable text
+was found, and this machine's Tesseract is missing language data
+(installed: eng) … install the matching language data (Tesseract installer →
+Setup additional language data, or the .traineddata files from the UB
+Mannheim page) and re-upload." Genuinely blank scans still get the
+"scan may be blank/too dark" diagnosis (no false positives — verified).
+### 3) Re-digitize boundary with typed coordinates — verified end-to-end
+The ✏️ Digitize / ✏️ Re-digitize panel lets you TYPE exact
+latitude/longitude for every corner (e.g. straight from a survey sheet),
+not only click pixels: per-corner editable lat/lon fields + an "add corner
+by coordinates" row. New 16-check functional test proves: typed values land
+exactly, invalid coordinates (lat>90, lon<-180) are rejected with a clear
+message, delete/re-add works, the saved boundary is marked "digitized", and
+RE-digitize preloads the existing corners so the officer nudges instead of
+redrawing. (This panel shipped in v3.9.1 — earlier local/.exe builds predate
+it; it is included in this build.)
+### 4) Test-suite hardening
+- tests/test_boundary.py no longer depends on Nominatim availability: if the
+  chosen record has no exact pin and its (test) village isn't geocodable,
+  the test sets an exact pin first (31 checks, was 30).
+- New suites: test_ocr_langpack.py (9 checks — eng-only-machine simulation,
+  tesseract auto-location, missing-pack error path) and
+  test_digitize_coords.js (16 checks — typed-coordinate digitize/re-digitize
+  against the real API, via full-page simulation).
+### 5) Verification (all green on v3.9.3)
+352 checks: system 56 · map tab 56 · full-page simulation 11 · regression 18 ·
+map sheet 12 · geocode 5 · boundary 31 · reject flow 18 · AI rescue 37 ·
+OCR lang-pack 9 · digitize-coords 16 · feature suites 45+38.
+
 ## WHAT'S NEW IN v3.9.2 (15-Sep-2026) — VILLAGE SHEET FIXED on fresh installs: auto demo data + one-click "Load Demo Data"
 ### 1) Village Sheet: district/tehsil/village dropdowns + plot grid now WORK on a fresh local install
 THE PROBLEM: a fresh local install (start.bat / run.py / the .exe) booted

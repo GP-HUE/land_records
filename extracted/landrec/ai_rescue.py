@@ -56,6 +56,21 @@ def assess(ocr_result, fields):
     survey = str((fields.get("survey_number") or {}).get("value", "") or "").strip()
 
     diag = []
+    # Language-pack hint (set by the OCR engine when the quick pass read
+    # nothing and common Indic packs are missing from THIS machine):
+    # this is the most likely cause of "OCR is broken" — show it FIRST.
+    pack_hint = ocr_result.get("pack_hint") or ""
+    if not pack_hint:
+        for p in (ocr_result.get("pages") or []):
+            if p.get("pack_hint"):
+                pack_hint = p["pack_hint"]
+                break
+    if pack_hint:
+        # The OCR engine only sets this when the page has visible ink but
+        # produced almost no real words AND common Indic packs are missing
+        # — show it FIRST: it is the most likely cause and the most
+        # actionable one.
+        diag.insert(0, pack_hint)
     if words == 0:
         diag.append("No text detected — the scan may be blank, too dark, or the wrong page was scanned.")
     elif words < 10:

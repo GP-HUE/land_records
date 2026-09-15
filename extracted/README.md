@@ -76,10 +76,19 @@ python3 -m uvicorn landrec.main:app --host 0.0.0.0 --port 8000
 System Tesseract (required for OCR):
 
 ```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-hin tesseract-ocr-mar \
-  tesseract-ocr-tam tesseract-ocr-tel tesseract-ocr-kan tesseract-ocr-guj \
-  tesseract-ocr-ben tesseract-ocr-urd
+# 11 language packs (10 Indic + English) — the exact set the app supports:
+sudo apt-get install tesseract-ocr tesseract-ocr-eng \
+  tesseract-ocr-hin tesseract-ocr-ben tesseract-ocr-guj tesseract-ocr-pan \
+  tesseract-ocr-ori tesseract-ocr-tam tesseract-ocr-tel tesseract-ocr-kan \
+  tesseract-ocr-mal tesseract-ocr-urd fonts-lohit-deva
 ```
+
+Windows: the default install path (`C:\Program Files\Tesseract-OCR`) is NOT on
+PATH — the app finds it automatically (v3.9.3+), but during the Tesseract
+installer run, tick the Indic language data you need ("Setup additional
+language data"). If OCR of a particular language still comes back empty,
+open **Account → System Status → Run full self-test**: the report says
+exactly which packs are missing and how to install them.
 
 ---
 

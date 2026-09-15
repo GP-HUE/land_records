@@ -21,10 +21,54 @@ MAX_HARD_LONG_EDGE = 15000    # reject BEFORE decoding anything bigger
 NO_DENOISE_ABOVE = 6000       # fastNlMeansDenoising is memory-hungry; skip on large pages
 TESS_TIMEOUT = 240            # seconds per Tesseract pass
 
-# Locate Tesseract:
+# Locate Tesseract. Priority:
 #   1. explicit PYTESSERACT_PATH env var (e.g. set by the Windows launcher)
 #   2. bundled copy inside a frozen .exe (tesseract/tesseract.exe + tessdata)
-#   3. system PATH (Linux/macOS default)
+#   3. well-known install locations (Windows "Program Files" etc. — the
+#      default Tesseract-OCR install is NOT on PATH, which is the #1 cause
+#      of "OCR is not working" reports)
+#   4. system PATH (Linux/macOS default)
+
+def _known_tesseract_locations() -> list:
+    cands = []
+    if os.name == "nt":
+        cands += [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+        ]
+        for env in ("LOCALAPPDATA", "ProgramData", "APPDATA"):
+            base = os.environ.get(env)
+            if base:
+                cands += [
+                    os.path.join(base, "Programs", "Tesseract-OCR", "tesseract.exe"),
+                    os.path.join(base, "chocolatey", "bin", "tesseract.exe"),
+                ]
+    return cands
+
+
+def locate_tesseract() -> str:
+    """Find the Tesseract binary (env var → bundled → well-known locations
+    → PATH). Returns '' when not found. Also used by the web-server's
+    System Status panel (landrec.main._find_tesseract)."""
+    import shutil
+    cands = []
+    env_tc = os.environ.get("PYTESSERACT_PATH")
+    if env_tc:
+        cands.append(env_tc)
+    if paths.is_frozen():
+        cands.append(os.path.join(paths.resource_dir(), "tesseract",
+                                  "tesseract.exe" if os.name == "nt" else "tesseract"))
+    cands.extend(_known_tesseract_locations())
+    cands.append("tesseract")
+    for c in cands:
+        if not c:
+            continue
+        rp = c if os.path.isabs(c) else (shutil.which(c) or "")
+        if rp and os.path.exists(rp):
+            return rp
+    return ""
+
+
 if os.environ.get("PYTESSERACT_PATH"):
     pytesseract.pytesseract.tesseract_cmd = os.environ["PYTESSERACT_PATH"]
 elif paths.is_frozen():
@@ -33,6 +77,16 @@ elif paths.is_frozen():
         pytesseract.pytesseract.tesseract_cmd = bundled
         os.environ.setdefault("TESSDATA_PREFIX",
                               os.path.join(paths.resource_dir(), "tesseract", "tessdata"))
+    else:
+        _found = locate_tesseract()  # .exe without bundled tesseract
+        if _found:
+            pytesseract.pytesseract.tesseract_cmd = _found
+else:
+    import shutil as _shutil
+    if not _shutil.which("tesseract"):
+        _found = locate_tesseract()
+        if _found:
+            pytesseract.pytesseract.tesseract_cmd = _found
 
 TESSDATA_DIR = "/usr/share/tesseract-ocr/5/tessdata"
 
@@ -182,6 +236,7 @@ def ocr_image(img: Image.Image, langs: list = None,
     gray = _to_gray(img)
     processed = _preprocess(gray)
     _cb("preparing image")
+    pack_hint = ""
 
     if langs is None:
         # Script detection: ONE quick pass over the small high-coverage pool
@@ -196,18 +251,61 @@ def ocr_image(img: Image.Image, langs: list = None,
             quick_img = processed.resize((max(1, int(w * scale)), max(1, int(h * scale))),
                                          Image.BOX)
         _cb("detecting document language (OCR pass 1 of 2)")
+        # image_to_data (not image_to_string): besides the text it gives the
+        # per-word confidence, which is what we need to tell "this page is in
+        # a language this machine can't read" (a few low-confidence
+        # hallucinated words) apart from "genuinely blank page" (no words).
+        quick = ""
+        solid_qw = 0  # words that look like REAL words: conf>=45, len>=3, pure alpha
         try:
-            quick = pytesseract.image_to_string(
+            qd = pytesseract.image_to_data(
                 quick_img, lang="+".join(["eng"] + detect_pool),
-                config="--psm 6", timeout=TESS_TIMEOUT)
+                config="--psm 6", output_type=pytesseract.Output.DICT,
+                timeout=TESS_TIMEOUT)
+            qw = []
+            for w, c in zip(qd["text"], qd["conf"]):
+                w = (w or "").strip()
+                if not w:
+                    continue
+                try:
+                    cf = int(float(c))
+                except (TypeError, ValueError):
+                    cf = -1
+                qw.append((w, cf))
+                if cf >= 45 and len(w) >= 3 and w.isalpha():
+                    solid_qw += 1
+            quick = " ".join(w for w, _ in qw)
         except Exception:
             try:
                 quick = pytesseract.image_to_string(quick_img, lang="eng",
                                                     config="--psm 6",
                                                     timeout=TESS_TIMEOUT)
+                solid_qw = sum(1 for w in quick.split()
+                               if len(w) >= 3 and w.isalpha())
             except Exception:
                 quick = ""
+        # ink coverage of the page (black fraction of the binarized quick
+        # image) — distinguishes "page has content this machine can't read"
+        # from "genuinely blank page"
+        _hist = quick_img.histogram()
+        ink_frac = (sum(_hist[:128]) / float(quick_img.size[0] * quick_img.size[1])
+                    or 0.0)
         langs = _top_scripts(quick) or ["eng"]
+        if (ink_frac > 0.005 and solid_qw < 10
+                and not set(DETECT_LANGS) <= set(available_langs())):
+            # The quick pass read (almost) nothing AND at least one of the
+            # common Indic packs (hin/ben/tam/tel) is missing from THIS
+            # machine: the classic "OCR is broken" report — the document is
+            # in an Indic language this machine can't read. Flag it so the
+            # AI-rescue diagnosis / routing note tells the user exactly what
+            # to install instead of silently creating a garbage record.
+            have = sorted(available_langs())
+            pack_hint = ("No readable text was found, and this machine's Tesseract is "
+                         "missing language data (installed: %s). If this document is in "
+                         "an Indic language the machine can't read, install the matching "
+                         "language data (Tesseract installer → \"Setup additional language "
+                         "data\", or the .traineddata files from the UB Mannheim page) "
+                         "and re-upload." % (", ".join(have) if have else "none found"))
 
     # keep only languages this Tesseract actually has data for
     have = set(available_langs())
@@ -241,7 +339,7 @@ def ocr_image(img: Image.Image, langs: list = None,
     text = _text_from_data(data)
     mean_conf = (sum(confs) / len(confs)) if confs else 0.0
     return {"text": text, "words": words, "conf": confs, "mean_conf": round(mean_conf, 1),
-            "langs": langs}
+            "langs": langs, "pack_hint": pack_hint}
 
 
 def _open_image_safe(data: bytes) -> Image.Image:
@@ -294,4 +392,6 @@ def process_file(data: bytes, filename: str, langs: list = None,
         "mean_conf": round(mean_conf, 1),
         "num_pages": len(pages),
         "detected_scripts": common.detect_scripts(full_text),
+        "pack_hint": next((p.get("pack_hint", "") for p in pages
+                           if p.get("pack_hint")), ""),
     }
