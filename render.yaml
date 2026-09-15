@@ -1,0 +1,16 @@
+# Render Blueprint — one-click deploy of the Land Records Portal.
+#
+#   render.com → New → Blueprint → pick this repo → Apply
+#
+# Free tier notes:
+#   * instance sleeps after ~15 min idle → first request wakes it (~30–60 s)
+#   * disk is EPHEMERAL → the app re-seeds demo data on every boot
+#     (see extracted/seed_demo_data.py); add a paid Persistent Disk to
+#     keep data across redeploys
+services:
+  - type: web
+    name: land-records-portal
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true

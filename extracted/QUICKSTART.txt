@@ -1,0 +1,1110 @@
+# Intelligent Land Record Digitization & Validation System
+# ======================================================
+
+An AI-powered, multi-user web application for digitizing legacy land records.
+
+## WHAT'S NEW IN v3.9.2 (15-Sep-2026) — VILLAGE SHEET FIXED on fresh installs: auto demo data + one-click "Load Demo Data"
+### 1) Village Sheet: district/tehsil/village dropdowns + plot grid now WORK on a fresh local install
+THE PROBLEM: a fresh local install (start.bat / run.py / the .exe) booted
+with an EMPTY database — the demo seeder previously ran only on the hosted
+Render deployment (whose disk is ephemeral). With zero records, the Land
+Map → 📋 Village Sheet showed blank जिला/तहसील/गाँव dropdowns and no plot
+grid at all, and the dashboard/queue were empty.
+THE FIX:
+- The seeder now lives in landrec/seed_demo.py and the app AUTO-SEEDS it on
+  first boot whenever the database is empty (local or hosted). Your first
+  start.bat/.exe launch now lands in a fully working portal: 7 demo
+  records with REAL village/tehsil/district fields (Barkheda/Arera in
+  Bhopal, Sarangpur in Shahdol), a demo mutation application, and demo
+  accounts (demo.admin@demo.local / Demo@Admin1, etc.).
+- The Village Sheet cascade now works out of the box: pick जिला → तहसील →
+  गाँव and the plot grid renders; 🔍 plot-number search finds the cell.
+- New 🧪 "Load Demo Data" button in the Land Map header (admin only) +
+  inside the sheet's empty state — one click loads the demo set.
+  SAFE: the server refuses to run it when the database already has
+  documents, so it can NEVER destroy your real data.
+- Opt out of first-boot seeding with environment variable LR_NO_DEMO_SEED=1.
+### 2) Village Sheet empty state now tells you EXACTLY what is missing
+- No records at all → "No records uploaded yet" + the demo-load button.
+- Records exist but none carry district/tehsil/village or survey/khasra
+  fields → the sheet explains that (re-upload the scan or fill the
+  location fields in the record editor) instead of a generic "no plots".
+### 3) Verification (all green on v3.9.2)
+Full-page simulation of the real index.html 11/11 (incl. fresh-install
+scenario with only the auto-seeded demo data) · system 56/56 · regression
+18/18 · map sheet 12/12 · geocode 5/5 · boundary 30/30 · reject flow 18/18 ·
+AI rescue 37/37 · feature suites 45/45 + 38/38.
+
+## WHAT'S NEW IN v3.9.1 (15-Sep-2026) — OCR works on small hosts (Render fix) + map source auto-fallback + manual boundary coordinates
+### 1) OCR worker no longer dies on 512MB hosts (e.g. Render free tier)
+WHY IT DIED: the OCR worker imported OpenCV (cv2) + numpy. cv2's import
+plus its per-page image buffers pushed server + worker + Tesseract past
+the 512MB free-tier memory limit — the OS OOM-killed the worker, so
+uploads failed with "OCR worker process died". The free tier also
+recycles containers, which reset the (ephemeral) database to the
+freshly-seeded demo data.
+THE FIX:
+- The OCR pipeline is now PIL-only (median denoise + Gaussian adaptive
+  threshold implemented in PIL — bit-equivalent output, verified: the
+  56/56 system battery incl. multilingual OCR e2e passes unchanged).
+- OpenCV removed from runtime requirements (still used only by the
+  offline sample-generator dev tools, which are not part of the server).
+- Dockerfile hardening: PYTHONMALLOC=malloc + MALLOC_ARENA_MAX=2.
+### 2) Map tiles: automatic source fallback
+If a tile server is blocked on your network (ISP/proxy/firewall blocks
+OSM etc.), the map now TRIES THE NEXT SOURCE AUTOMATICALLY
+(OSM → Satellite/Esri → CARTO → Topographic) and remembers the one that
+works. The warning banner says what's happening; if every source fails
+(no internet at all) it offers the fully-offline 📐 Schematic view.
+### 3) Boundary digitize: manual coordinate input (for accuracy)
+The ✏️ Digitize / Re-digitize panel now supports typing EXACT
+coordinates, not just clicking pixels:
+- every corner has editable Latitude / Longitude fields (live update)
+- a "＋ Add" row to append a corner by typed coordinates (Enter works)
+- ✕ removes any corner
+- Re-digitizing an existing boundary pre-fills its current corners so
+  you can fine-tune each point's exact coordinates instead of
+  redrawing — this is the accuracy path (e.g. coordinates copied from a
+  survey sheet)
+Verified: 56/56 system (incl. OCR e2e on the new PIL pipeline), 18/18
+regression, 65/65 map-tab battery (incl. 9 new checks for the auto
+tile-fallback + manual coordinate digitize), 30/30 boundary, 12/12 map
+sheet, 5/5 geocode. OCR accuracy on the PIL pipeline verified identical
+to the cv2 pipeline on the Hindi sample (owner/survey/khasra/area/
+village/district all extracted the same).
+Footer: "System Version: 3.9.1".
+
+## WHAT'S NEW IN v3.9.0 (15-Sep-2026) — Plot boundaries + coordinates on the map (Naksha-style)
+Clicking a record on the Real Map now opens a **📐 Plot Boundary &
+Coordinates card** (Landeed-Naksha style):
+- Corner coordinates (every vertex, lat/long to 6 decimals)
+- Centroid (lat, long) · computed polygon area (m² + acres) vs the
+  recorded area · boundary source badge
+Three ways to get a boundary (Verifier / Admin only):
+1. ✏️ DIGITIZE — click the plot's 4+ corners on the map (trace from your
+   survey map); ✓ Finish saves it, ✕ Cancel aborts. Drawn as a green
+   polygon, persisted per record, fully audited (boundary_set/cleared).
+2. 📐 ESTIMATE — one click generates a square with the RECORDED AREA,
+   centred on the exact pin (or the geocoded village). Always clearly
+   labelled "ESTIMATED — not a legal boundary" (grey dashed polygon).
+3. 📁 IMPORT GEOJSON — paste a real survey boundary file (Feature /
+   Polygon / MultiPolygon / FeatureCollection / ring; [lon,lat]
+   auto-converted). Drawn as a blue polygon.
+Where to find it: Real Map toolbar (✏️ Digitize / ✓ Finish / ✕ Cancel),
+clicking any polygon or record, and a 📐 boundary section in the record
+detail view (coordinates table + digitize/import/clear).
+Honest note: truly legal boundaries come from government survey data
+(no universal free API exists); this feature gives you the workflow to
+digitize/import them per plot and show full coordinates — the data model
+is ready for bulk GeoJSON import in the future.
+New: columns documents.boundary_geojson/boundary_source/boundary_at;
+endpoints POST /api/map/records/{id}/boundary | /boundary/estimate |
+/boundary/import | /boundary/clear; GET /api/map/records +
+/api/documents/{id} now include the boundary.
+Verified: 30/30 new boundary battery (estimate sizing within 10% of
+recorded area, digitize persistence, GeoJSON lon/lat conversion +
+rejection of invalid input, 400 validation, 403 RBAC for operators,
+clear + audit trail, 404 unknown record) plus full regression: 56/56
+system, 18/18 regression, 56/56 map tab, 12/12 map sheet, 5/5 geocode.
+Footer: "System Version: 3.9.0".
+
+## WHAT'S NEW IN v3.8.1 (15-Sep-2026) — Land Map fix: smart geocoding + real demo villages
+The Land Map showed no blue dots on the hosted demo because (a) the geocoder
+tried exactly ONE query (village+district+state) and gave up, and (b) the
+demo seeder used village names OpenStreetMap cannot resolve (fictional
+"Sundarpur, Bhopal", Devanagari-only spellings) — so every record click
+ended in "Could not locate…".
+- FIX: /api/map/geocode now runs a SMART CASCADE server-side:
+  village+district+state → village+district → village alone → district,
+  with STATE-AWARE candidate selection (top-5 Nominatim candidates, prefer
+  the requested state/district). A same-named village in ANOTHER state is
+  never returned when a state was given (verified: Manoharpur+Bhopal+MP
+  now resolves to Bhopal, not Manoharpur in Jharkhand).
+- Honest fallback: a village OSM truly doesn't have is estimated at its
+  DISTRICT centre and drawn as a distinct GREY HOLLOW RING (legend +
+  "(district est.)" in the record list + popup note) — never mistaken
+  for a real village fix. match_level is returned (village /
+  village_district / district) and cached per village.
+- FIX: demo seeder now uses REAL, OSM-resolvable villages (Barkheda &
+  Arera near Bhopal, Sarangpur in Shahdol — all Madhya Pradesh), keeping
+  the history story (survey 312 × 2 years) and the transfer story
+  (survey 452, Ram Bahadur → Kamla Devi) intact. The unreadable demo scan
+  still correctly has no location.
+- UI: record-list location line and marker popups show 🟢 exact pin /
+  🔵 village level / ⚪ district-level estimate.
+Verified: geocode cascade incl. same-name-state trap + legacy query mode,
+seeded temp-boot (3/3 demo villages locate), 56/56 map-tab battery,
+12/12 map sheet, 5/5 geocode, 56/56 system, 18/18 regression, 38/38 v3.7.
+Footer: "System Version: 3.8.1".
+
+## WHAT'S NEW IN v3.8.0 (13-Sep-2026) — AI OCR Rescue + auto-routing to the least-loaded officer
+New module: landrec/ai_rescue.py (100% offline, no external AI calls).
+Every upload now flows through:  OCR  ->  AI rescue (if needed)  ->  routing (if unreadable).
+### 1) AI helps when OCR can't read or extract
+If the first OCR pass reads poorly (few/no key fields, low confidence),
+the AI automatically:
+- retries with extra LANGUAGE-HINT passes (detected script, Hindi, English)
+- retries on ENHANCED SCAN variants (grayscale + auto-contrast, 2x
+  upscale + sharpen) — images only, capped at 4 extra passes so uploads
+  stay fast
+- merges every pass: a field value seen in MORE passes wins (corroboration),
+  then higher confidence; learned corrections re-applied
+- explains what it tried ("language pass 1 (hin) — 41 words, 5 fields…")
+Upload result shows a blue "🤖 AI Rescue succeeded" banner with the
+before→after key-field count, or a note if it couldn't improve.
+### 2) If the AI still can't read it -> routed to a VERIFICATION OFFICER
+A document the AI cannot read is NEVER auto-approved:
+- forced into the verification queue (pending_review)
+- a human-readable DIAGNOSIS is generated ("No text detected — the scan
+  may be blank, too dark, or the wrong page…", "very low confidence…")
+- AUTO-ROUTED to the LEAST-LOADED verification officer (load = their
+  routed pending docs + their own pending uploads; ties break
+  alphabetically) — shown as "👤 Routed to: <Officer> (least-loaded —
+  N in their queue)"
+- a HIGH-priority task is created in the officer's AI Task Inbox
+  ("🤖 AI-unreadable record needs manual review")
+- audit trail: ai_rescue, ai_routed entries (and ai_routing_cleared when
+  the record is eventually verified)
+### 3) New UI
+- Upload result: AI Rescue / AI-Routed banners with diagnosis + tried passes
+- Verification Queue: 🤖 AI-Routed → <officer> chip on each routed record
+  (hover for the AI's diagnosis) + "Officer workload" row showing every
+  officer's load and who is least-loaded
+- Record detail: red routing banner (who, why, what to do)
+- Dashboard: new "🤖 AI-Routed (unreadable docs)" counter
+### 4) New API
+- POST /api/process response now includes an `ai` block
+  (rescued, passes, tried, before, diagnosis, unreadable, routed_to,
+   routed_load, key_before, key_after)
+- GET /api/queue/loads — per-officer workload (verifier/admin)
+- GET /api/dashboard — new `ai_routed` count
+### 5) Test documents (in samples/)
+- bad_blank_scan.png — pure white (0 words -> rescued-attempt -> routed)
+- bad_noise_scan.png — static noise (garbage OCR -> routed; low-confidence
+  garbage detection prevents hallucinated fields from escaping review)
+- bad_blurry_scan.png — Hindi khatauni destroyed by blur+darken
+- regenerate anytime: python landrec/make_bad_samples.py
+Verified: 37/37 new AI-rescue battery (blank->routed, least-loaded
+selection with a pre-loaded officer, normal doc untouched, verify
+clears routing, audit trail, task inbox, UI pieces), plus full
+regression: 56/56 system, 18/18 regression, 45/45 v3.6, 38/38 v3.7,
+56/56 map tab, 12/12 map sheet, 5/5 geocode.
+Footer: "System Version: 3.8.0".
+
+## WHAT'S NEW IN v3.7.2 (13-Sep-2026) — Land Map: "access blocked" tiles fix
+When your network BLOCKS the OpenStreetMap tile server (office proxy,
+firewall, ISP, or the sandboxed preview iframe), the Real Map used to
+show a dead grey box + a warning. Now:
+- NEW: MAP SOURCE SWITCHER (dropdown in the Real Map toolbar) with
+  4 online sources — 🗺️ OSM Standard, 🗺️ CARTO (light), 🛰️ Satellite
+  (Esri World Imagery), ⛰️ Topographic (OpenTopoMap). If your network
+  blocks one, switch to another — your records/markers/pins are
+  completely unaffected. The choice is remembered (localStorage).
+- NEW: 📐 SCHEMATIC MODE ("works fully offline") — no tiles at all;
+  every marker still sits at its REAL lat/lon position, so the map is
+  fully usable with zero internet (offline Panchayat PCs, sandboxed
+  preview). A note explains the view; switch back to any tile source
+  for the full map.
+- The tile-blocked warning now tells you exactly what to do: try a
+  different map source, or a one-click "📐 Use Schematic (offline)"
+  button straight from the warning itself.
+- The warning still auto-hides the moment any tile source loads.
+Verified: 56/56 map battery (all 4 sources + schematic mode present in
+the served page, pin/geocode/records flows), 56/56 system, 18/18
+regression, 45/45 v3.6, 38/38 v3.7, 12/12 map sheet, 5/5 geocode.
+Footer: "System Version: 3.7.2".
+
+## WHAT'S NEW IN v3.7.1 (13-Sep-2026) — Land Map tab: bug fixes + polish
+Full audit of the Land Map tab; every defect found is fixed:
+### Real Map view
+- FIX: the "tiles need internet" warning was STUCK — it appeared on the
+  first tile error and never went away, even after tiles loaded fine.
+  Now it shows only while tiles are actually failing; the first
+  successfully loaded tile hides it (and it has a ✕ to dismiss).
+- FIX: broken/blank map on first view — the map was fitted while its
+  container was still hidden (zero size). Correct order now:
+  invalidateSize → draw markers → fit (fit happens once per session,
+  or again after 🔄 Refresh, so your zoom is no longer reset every time
+  you switch back to the tab).
+- FIX: clicking a record in the list now ALSO opens its marker popup
+  (previously a dead no-op).
+- FIX: the dead grey box looks less broken while tiles load — subtle
+  grid background + a "Loading map tiles…" hint that disappears when
+  tiles arrive (2.5 s safety timeout for browser-cached tiles).
+- FIX: blue dots for villages beyond the first 20 never appeared.
+  Background geocoding now loops until every village is located (server
+  cache makes repeats instant; bails out politely when offline).
+- NEW: village locations are CACHED in your browser (localStorage) —
+  after the first load, blue dots appear INSTANTLY on every reload,
+  no waiting.
+### Village Sheet view
+- FIX: plot-number search gave no feedback when a plot wasn't found —
+  now shows a green "✓ selected" or an amber "no plot in this village"
+  hint.
+- FIX: "Show on Map" (from a record) silently failed when the plot
+  wasn't in the village sheet — now explains why.
+- NEW: every plot's info panel has a "🗺️ Open on Real Map" button —
+  jumps to the real map and flies to that village.
+Verified: 44/44 new map battery (all fixes present in the served page +
+pin set/clear/persist/RBAC/validation, geocode real & fictional, map
+records payload), plus full regression: 56/56 system, 18/18 regression,
+45/45 v3.6, 38/38 v3.7, 12/12 map sheet, 5/5 geocode, 18/18 reject.
+Footer: "System Version: 3.7.1".
+
+## WHAT'S NEW IN v3.7.0 (13-Sep-2026) — full re-alignment with the reference portal
+The reference site (document-screening-1) was re-fetched and audited again;
+everything it does that we lacked is now in:
+### 🔍 Viewer workspace (Search tab) — the reference "Simple Portal"
+- New 🔍 Search tab: big search box (owner / khasra-survey / village /
+  record ID) + village / district / document-type filters over the
+  APPROVED-RECORDS CATALOG. Only verified/auto-approved records are
+  visible — drafts and pending records stay hidden.
+- New VIEWER role workspace: a Viewer sees only Search + Dashboard +
+  Account (everything else hidden); self-signup now offers Viewer or
+  Data Operator (Verifier/Admin still granted only by the Admin).
+- Viewers are read-only: search + record detail (with Certified PDF /
+  Verify links); all write endpoints return 403 for them.
+### 📋 AI Approval Center (admin) — "AI proposes, a human re-authorizes"
+- The AI assistant's verify/delete actions now DRAFT a proposal instead
+  of executing: a purple "AI proposal — approval required" card with an
+  "Open Approval Center" button.
+- New admin tab: every proposal shows action, target, before → after
+  state, proposer, status. Approve / Reject buttons.
+- Server-side guarantees (all tested): re-authorization on decision,
+  before-state re-check (if the record changed, approval fails safely as
+  "stale" and the record is untouched), executed exactly once
+  (double-approve → 409), every decision written to the audit trail.
+### 🤖 AI Task Inbox — role-to-role workflow tasks
+- Floating "🤖 AI Tasks" button (red badge = active tasks) + panel that
+  polls every 20 s (reference behaviour).
+- Tasks: TASK-YYYY-NNNN, title/description, priority (LOW→CRITICAL),
+  assigned role, optional record link, full event log.
+- Status workflow with allowed transitions enforced server-side:
+  PENDING → ACCEPTED → IN_PROGRESS → COMPLETED (plus BLOCKED /
+  ESCALATED / RETURNED branches). Buttons adapt to status and role.
+- Staff (Verifier/Admin) create tasks via ＋ New Task; assignees respond
+  in their own inbox; admins monitor everything.
+### ♿ Accessibility & gov chrome (reference parity)
+- Top utility bar: live clock (1 s), A- / A / A+ text sizing (persisted),
+  🌓 High Contrast mode (persisted).
+- Tricolor stripe retained.
+### Other upgrades
+- Records table: new "Reviewer Notes" column (returned/rejected records
+  show the officer's comments inline).
+- AI assistant: reference-style suggestion chips ("What's happening
+  today?", "Show recent activity", "Find pending records", "What needs
+  my attention?", "Show low confidence records") + one-click
+  "📊 Briefing" button (synthesized system briefing: records, SLA,
+  mutations, OCR quality, low-confidence list, recent activity, pending
+  proposals).
+- Drag & drop upload zone was verified present (parity confirmed).
+Verified: 38/38 v3.7 battery (search RBAC, proposal lifecycle incl.
+stale/once-only/reject, task lifecycle incl. transitions + role
+scoping, briefing), plus full regression of all earlier batteries
+(56/56 system, 18/18 regression, 45/45 v3.6, 12/12 map, 5/5 geocode,
+18/18 reject). NOTE: a UI refactor earlier today had silently dropped
+the Records-tab render code (loadDocuments & friends) — detected by
+audit, restored and re-tested.
+Footer: "System Version: 3.7.0".
+
+## WHAT'S NEW IN v3.6.0 (13-Sep-2026) — Five official-portal features
+### 1. Certified PDF with QR + public Verify page
+- Every VERIFIED record can be downloaded as an official "Certified Copy"
+  PDF: bilingual header, full field table, verification block (who, when,
+  SHA-256 certification hash), signature line and a QR code.
+- Button in the record detail: "⬇ Certified PDF" + "🔍 Verify Page".
+- The QR opens the PUBLIC verify page /verify/<id> (no login) — scanning
+  it with a phone proves the paper is genuine: the page re-computes the
+  certification hash live and checks the audit chain.
+- TAMPER PROOF: alter any field after certification (even directly in the
+  database) and the verify page flips to "⚠ TAMPERED — CERTIFICATION
+  FAILED" (tested end-to-end).
+- Hindi/Devanagari values render via an auto-located Indic font
+  (Nirmala/Mangal on Windows, Lohit/Noto on Linux, DevanagariMT on macOS);
+  pure-Python generation (PyMuPDF + qrcode) — works fully offline.
+### 2. Year-wise history (the land's "passbook")
+- New "📜 Load History" section in every record's detail view: a timeline
+  of ALL records with the same survey number, oldest year first.
+- Shows owner, father, area, khasra, khata, status per year; flags
+  "⚠ Changed since previous record: owner … → …, area … → …"; the
+  current record is highlighted "THIS RECORD"; every version is
+  click-through to its full record.
+- API: GET /api/documents/{id}/history.
+### 4. SLA aging + report export
+- Verification Queue now has an AGE column (days in queue): green ≤7d,
+  amber 8-30d, red >30d.
+- Dashboard new cards: "⏱ Pending > 30 days" and "📝 Mutation Apps".
+- Records tab new "⬇ Report (Export CSV)" button (Verifier/Admin): full
+  register as Excel-compatible CSV (BOM so Hindi opens correctly).
+### 5. Mutation (Namantaran) online application module — NEW TAB
+- Citizens (any logged-in user) apply online: transfer type (sale /
+  inheritance / gift / court order / partition), land details,
+  previous → new owner, deed no./date, notes, optional supporting-scan
+  upload. They get an official application number MUT-YYYY-NNNN.
+- Track like a courier: Received → Under Review → Verified /
+  Returned / Rejected, with a full event timeline in the detail view.
+- Staff (Verifier/Admin) get the staff queue with counts + a red tab
+  badge for pending applications: Start Review → link the existing
+  record (auto-suggested by survey number) → "Approve & Update Record"
+  changes the record's owner automatically (certified + audited), or
+  Return/Reject with mandatory notes.
+- RBAC: applicants see ONLY their own applications; operators cannot
+  review; processed applications are locked (409).
+- New tables: mutations + mutation_events; new APIs under /api/mutations.
+### Testing documents (in samples/)
+- xfer_old_2019.png / xfer_mutation_2021.png / xfer_new_2023.png →
+  year-wise history (same survey 452, different years/owners)
+- handwritten_mutation_sample.png → supporting document for a mutation
+Verified: 45/45 new feature battery (PDF bytes+text+QR, verify page,
+tamper detect+restore, history sort+content, SLA, CSV, full mutation
+workflow incl. RBAC/auto-link/owner-update/reject/409s), 56/56 system,
+18/18 regression, 12/12 map sheet, 5/5 geocode, 18/18 reject flow.
+Footer: "System Version: 3.6.0".
+
+## WHAT'S NEW IN v3.5.24 (10-Sep-2026) — Clear Pin button (map confusion fix)
+- NEW: "📌 Clear Pin" button in the record's detail header (next to
+  "Show on Map") for Verification Officer / Admin, shown only on
+  records that have an exact pin. Removing a pin returns the record to
+  village-level location (blue dot).
+- WHY: users saw a GREEN pin on a freshly uploaded document and asked
+  why. Explanation: a green pin means SOMEONE set an exact coordinate
+  on that specific record (via "Set exact pin"). Fresh uploads ALWAYS
+  get a blue dot (village level) — no pin is ever auto-created. If the
+  same document was uploaded before and an earlier copy had been
+  pinned, both markers sit at the same village: the old copy's green
+  pin sits right on top of the new copy's blue dot, which looks like
+  the new record is pinned. Click the marker popup's "Open record →"
+  to see exactly which document a pin belongs to; the new button
+  removes a pin when you no longer want it.
+- On a FRESH installation (your own PC) there are no pins at all until
+  a Verification Officer/Admin sets one — every record is a blue dot
+  located at its village automatically.
+Verified: Clear Pin API end-to-end (200, coordinates nulled, audit
+entry "location_cleared"), map sheet 12/12, geocode 5/5, system 56/56,
+regression 18/18.
+Footer: "System Version: 3.5.24".
+
+## WHAT'S NEW IN v3.5.23 (10-Sep-2026) — local-machine hardening pass
+Full audit of everything that runs on your own PC, plus one more fix:
+- FIX: records with NO village and NO district (but maybe a state) used
+  to be geocoded as plain "India" and got a blue dot in the centre of
+  the country. Now such records are skipped by the background locator,
+  and clicking one in the Real Map view explains to pin it manually
+  with "Set exact pin".
+- AUDIT (all verified, no change needed): run.py monitor/server/OCR
+  crash-isolation and Windows stream-handle handling; start.bat
+  (venv + deps + Tesseract path auto-detect + admin credentials);
+  build_exe.bat (bundles ALL of landrec/static — including the new
+  vendored Leaflet — plus samples and Tesseract); paths.py for both
+  source and .exe modes; JS api() reconnect/401/parse defenses;
+  all 47 inline UI handlers bound to existing functions; pyflakes
+  clean; /api/system/selftest 7/7 (Tesseract, 11 language packs, OCR
+  worker handshake, OCR end-to-end auto + hinted, PDF, field NLP);
+  default admin auto-seeded on a fresh install
+  (admin@landrec.gov.in / Admin@123).
+- Reminder (by design): closing ALL browser tabs stops the server
+  within ~10 s; double-click the .exe / start.bat again anytime —
+  your data is kept.
+Footer: "System Version: 3.5.23".
+
+## WHAT'S NEW IN v3.5.22 (10-Sep-2026) — Village Sheet fixes (selects + map now work)
+BUG FIXES for the Land Map tab's Village Sheet (Bhu Naksha) view:
+- FIX: the District / Tehsil / Village dropdowns were EMPTY and could not
+  be selected. The cascade builder (mapCascadeRebuild) existed but was
+  never called, so on opening the tab the selects had no options and the
+  schematic sheet rendered nothing. loadMapTab() now rebuilds the
+  district -> tehsil -> village cascade AND renders the village sheet
+  every time the tab loads / refreshes.
+- FIX: "Show on Map" (from a record's detail view) could crash with
+  "Cannot read properties of null" because the cascade tree was never
+  built. Now built on load, so the sheet auto-opens on the record's
+  district/tehsil/village and selects its plot.
+- FIX (real map view): village-level records only got a blue dot AFTER
+  you clicked each record. The tab now geocodes all village locations in
+  the background (server-side, cached a week, Nominatim throttled) so
+  every record appears on the map as a green pin (exact) or blue dot
+  (village) automatically.
+- FIX (real map view): if the tile server is unreachable the whole map
+  was hidden behind a full-screen "offline" panel. Now the map stays
+  visible with all markers/dots and a small amber notice explains that
+  tiles need internet (the schematic Village Sheet never needs internet).
+- NEW: Leaflet 1.9.4 is now BUNDLED with the system (landrec/static/
+  vendor/leaflet/) instead of loading from the unpkg CDN — the map
+  library works fully offline; only the tile images need a connection.
+  CDN is kept as an automatic fallback.
+Verified: 56/56 system battery, 18/18 regression battery, plus a
+12-check functional test that runs the real cascade/sheet code against
+live data (all three selects populate, cascade follows district,
+sheet grid renders plots, filtered village sheet + header correct).
+Footer: "System Version: 3.5.22".
+
+## WHAT'S NEW IN v3.5.21 (10-Sep-2026) — Reject action: review flow now matches the reference portal
+The reference DILRMP staff review has THREE decisions: Approve, Return,
+Reject. We had the first two; now the third is in:
+- NEW: "✕ Reject" button (red) in the record detail's Verifier Action bar
+  (next to Return with Notes and Save & Verify) and in the Upload tab's
+  Verification panel. Rejecting requires a reason (mandatory reviewer
+  notes, same rule as Return) and a confirmation step.
+- NEW: terminal REJECTED status. A rejected record is permanently closed:
+  fields become read-only, no further verify/return/reject is possible,
+  and the reason is shown in the record header
+  ("Status: rejected — Reason: ...").
+- NEW: "✕ अस्वीकृत (Rejected)" status filter chip in the Records tab;
+  rejected records show a red pill in the process-status column.
+- DASHBOARD: new "Rejected" counter card (workflow rejections; the
+  "AI Flagged" card still counts auto-validation verdicts).
+- Audit trail records a "record_rejected" entry with the reason.
+- This completes the 1:1 match with the reference portal's staff
+  review actions (Approve / Return to Data Officer / Reject).
+- Terminal-state guards: a rejected record can no longer be verified,
+  returned, re-submitted, or re-saved via the API (all return
+  409 "permanently closed"), so the closed state can't be bypassed.
+Verified: 56/56 system battery, 18/18 regression battery, plus an
+18-check end-to-end reject test (RBAC 403 for operator, 400 on empty
+notes, 200 for verifier, status+notes persisted, audit entry
+recorded, terminal 409s, dashboard counter, rejected filter,
+excluded from the pending queue).
+Footer: "System Version: 3.5.21".
+
+## WHAT'S NEW IN v3.5.20 (08-Sep-2026) — Map / GIS tab (village-level land locator)
+- NEW: a Map / GIS tab (🗺️) for every land record, like a government
+  GIS portal. Each record is shown at its VILLAGE/DISTRICT location on a
+  real OpenStreetMap map; records with a pinned exact coordinate show a
+  green pin, the rest locate to their village (blue dot).
+  * Left panel: searchable record list (owner / survey / khasra / village /
+    district). Click a record to fly the map to it.
+  * Exact pin: Verification Officer / Admin can tick "Set exact pin" and
+    click the map to drop a pin for the selected record (stored per record,
+    audited). Everyone else sees pins read-only.
+  * Village location is resolved via OpenStreetMap Nominatim geocoding
+    (free, no API key), proxied through the app (proper User-Agent, cached
+    a week, throttled to 1 req/s per Nominatim's policy). If a village can't
+    be found (e.g. a very small or misspelt one), the app prompts you to pin
+    the exact spot instead.
+  * The record detail view shows its location (village/district, or exact
+    coordinates if pinned) plus a "Show on Map" button that jumps to the map.
+  * OFFLINE FALLBACK: the map tiles and Leaflet library load from the
+    internet. If there's no connection, the tab shows a notice and the
+    record list (with any pinned coordinates) still works.
+- New endpoints: GET /api/map/records, PUT /api/map/records/{id}/location
+  (verifier/admin), POST /api/map/geocode. New documents.lat / documents.lon
+  columns (auto-migrated).
+- Verified: 56/56 system battery + 18/18 regression, map endpoints
+  (real geocode, pin set/clear/persist, RBAC 403 for operators,
+  out-of-range coords rejected, fictional village -> clean "no match").
+Footer: "System Version: 3.5.20".
+
+## WHAT'S NEW IN v3.5.19 (08-Sep-2026) — sample-strip bugfix
+- BUG FIX (UI): clicking a sample document from the Upload tab's sample
+  strip failed with "Invalid sample name" whenever the language was left on
+  Auto-detect. The URL was built as "name.png&doc_type=..." (missing the
+  "?" when lang is empty), so the &doc_type part was read as part of the
+  file name and rejected by the path-traversal guard. The query string is
+  now built properly (and the name is URL-encoded). Verified end-to-end:
+  sample processing with Auto-detect now works.
+Footer: "System Version: 3.5.19".
+
+## WHAT'S NEW IN v3.5.18 (08-Sep-2026) — transfer edge cases + test documents
+Edge cases for the ownership-transfer handling (v3.5.17) are now covered:
+- OCR-variant owner names: a re-upload where OCR mangles the name slightly
+  ("Ram Bahadur Sing" vs "Ram Bahadur Singh") is now flagged as a POSSIBLE
+  DUPLICATE ("owner name differs only slightly - may be an OCR variation of
+  the same person"), NOT as an ownership transfer (fuzzy match, ratio >= 0.8).
+- Survey matching hardened: Devanagari digits (452) match ASCII "452",
+  but "45/2" is no longer confused with "452" (normalized raw-string match
+  with separators preserved).
+- Transfer hints now note when the reference record itself is not yet
+  verified ("status: pending_review - not yet verified itself").
+- Consistency Check reworked: same survey number in DIFFERENT villages is
+  reported as INFO ("different lands that share a survey number, not a
+  conflict" - no more false red conflicts); area/khasra changes no longer
+  block the transfer pattern and are noted instead ("Area also differs ...
+  consistent with a partition").
+NEW: 6 ready-made transfer-scenario test documents in samples/ (xfer_*.png -
+A's 2019 khatauni, the 2021 mutation, B's 2023 khatauni, a same-year
+conflict, a same-survey-different-village land, and a partition sub-plot)
+plus TRANSFER_TEST_GUIDE.md: a step-by-step test procedure with the exact
+expected flag for every step. All 6 documents OCR cleanly (87-95% confidence)
+and the full 14-check live scenario battery + 6 edge-case unit checks pass.
+Footer: "System Version: 3.5.18".
+
+## WHAT'S NEW IN v3.5.17 (08-Sep-2026) — ownership-transfer awareness (mentor fix)
+Solves the classic sale scenario: A sells land to B; B's papers match A's
+record in every land detail (survey, khasra, village, area) and only the
+owner name changed. The old logic misread this:
+  * Consistency Check called it a CRITICAL conflict
+    ("same survey no. shows different owners")
+  * B's new document could even be AUTO-APPROVED with nobody noticing
+    the change of ownership
+Now the system recognizes the transfer pattern:
+- NEW on upload: if the new document matches an existing record in
+  survey + village but the owner is different, it is NOT flagged as a
+  duplicate or a conflict. Instead a clear review hint is added:
+  "Possible ownership transfer: same survey + village as record #abc
+  (owner 'A'), but a different owner here - verify with the mutation/sale
+  record before approving." The record is routed to PENDING VERIFICATION
+  (never auto-approved) and the AI Decision Support card shows
+  REVIEW REQUIRED with that flag.
+- REFINED Consistency Check owner-conflict logic:
+  * set includes a mutation/sale document  -> INFO (recorded transfer)
+  * different record years + matching land  -> WARNING (likely transfer)
+  * same year, or land details differ       -> ERROR (genuine conflict)
+- The consistency results table now shows each document's Type, so the
+  verifier can see which document is the mutation.
+- Verified end-to-end: 8-case scenario battery + live API tests
+  (transfer hint on upload, transfer-aware consistency flags, no false
+  positives on clean documents), plus the full 56-check system battery.
+Footer: "System Version: 3.5.17".
+
+## WHAT'S NEW IN v3.5.16 (08-Sep-2026) — AI bot: actions, explain, compare, analytics
+The 🤖 AI Assistant gained a second generation of features (all still
+100% offline and rule-based):
+- ACTIONS (with an explicit confirm/cancel button in the chat):
+  * 'open document <id>'      -> opens the record in the Records view
+  * 'verify document <id>'    -> verifies it (Verification Officer / Admin only)
+  * 'delete document <id>'    -> permanently deletes it (Admin only)
+  * 'go to the queue / dashboard / records / comparison / ...' -> navigates
+  Role-gated on the server too: an operator asking to verify gets a clear
+  explanation instead of an error.
+- 'explain document <id>'     -> the full AI Decision Support (recommendation,
+  summary, reasoning, flags) right in the chat
+- 'compare <id> and <id>'     -> the AI differences explanation for any two
+  records, with both records openable from the answer
+- ANALYTICS: 'top districts', 'top states', 'top villages', 'most common
+  document types', 'show low confidence records' (pending records sorted by
+  lowest OCR confidence - the ones needing the most human checking)
+- 'show more' after any search -> the next 5 results (per-user memory)
+Bug fixes found in the full sweep (56/56 system + 18/18 regression passed):
+- Records table and record detail could render 'None%' when a document had
+  no OCR confidence value (now defaults to 0)
+- Consistency Check UI let you tick more than 6 documents while the backend
+  silently checked only 6 - now it shows 'max 6 supported' and disables the
+  button; the Run button also guards against it
+Footer: "System Version: 3.5.16".
+
+## WHAT'S NEW IN v3.5.15 (08-Sep-2026) — AI Assistant now chats + knows the whole site
+The floating 🤖 AI Assistant was upgraded:
+- CHAT: greetings and small talk now get natural replies - hi, hello, hey,
+  namaste, "how are you", thanks, ok, bye, "who are you". (Long queries like
+  'hi, find khatauni of Ramesh' still go straight to search.)
+- FULL WEBSITE KNOWLEDGE: the help knowledge base was expanded to cover
+  every aspect - what the portal is (DILRMP), all 8 sections in detail
+  (upload flow, dashboard stats, records tab, verification queue + why
+  records are pending, comparison, consistency check, AI learning loop,
+  hash-chained audit log, users/roles, account/system status), the 4 document
+  types (khatauni/patta/mutation/deed/receipt), the 16 extracted fields,
+  verified vs auto-approved, confidence scores, what to do when OCR reads
+  values wrong, the sample strip, lockout (5 attempts / 5 min), promote to
+  admin, reset password, deactivate user, where-is-X quick answers, data
+  storage, privacy and offline/no-internet guarantees.
+- NEW CAPABILITIES: 'details of document <12-char ID>' returns the full
+  record summary with an Open button; 'show the latest documents' lists the
+  5 most recent uploads.
+- Bug fixes from the 3.5.14 batch: crash on document-ID questions,
+  'how does verification work' not matching, 'where is the data stored'
+  falling through, 'do I need internet' falling through, 'show the latest
+  documents' being treated as a text search, and 'make someone an admin'
+  matching the generic roles answer instead of the how-to.
+  Tested: 41-question battery, all answered in the right category.
+Footer: "System Version: 3.5.15".
+
+## WHAT'S NEW IN v3.5.14 (08-Sep-2026) — visible AI Assistant (floating button)
+- NEW: floating 🤖 AI Assistant button (bottom-left) with a chat panel.
+  Ask questions in plain words (Hindi or English):
+  * Website help - "How do I verify a record?", "what does CAUTION mean?",
+    "how to upload?", "what are the statuses?", "how do I change my password?"
+  * Document search - "Find khatauni of Ramesh", "show pending documents",
+    "which record has survey 45/2?", "show records from village Barkheda"
+  * Record questions - "who owns survey 312?", "how many verified records?"
+  Search results come with an 'Open record' button that jumps straight to the
+  record's detail view. Quick-question chips are shown on first open.
+  Engine: new landrec/ai_assistant.py - 100% offline rule-based (new API
+  POST /api/assistant/ask): no internet, no API keys, no data leaves the PC.
+- FIX: the footer version stamp was hardcoded to 3.5.5 - it now always
+  shows the real running version (fetched from /api/system).
+Footer: "System Version: 3.5.14".
+
+## WHAT'S NEW IN v3.5.13 (08-Sep-2026) — AI features (same set as DILRMP reference)
+Added the reference portal's AI feature set. All of it is OFFLINE rule-based
+analysis (new module landrec/ai_support.py): no internet, no API keys, no
+document data ever leaves the machine - safe for government records.
+- AI DECISION SUPPORT on every record's detail screen: a recommendation
+  badge (ROUTINE_CLEAR / REVIEW_REQUIRED / CAUTION_DISCREPANCY) plus a
+  plain-language summary, reasoning and specific flags (low-confidence
+  fields, missing required fields, duplicate warnings, auto-corrected
+  fields, validation errors) - so the verifier sees exactly what to check.
+- AI DIFFERENCES EXPLANATION on the Comparison tab: a written explanation
+  of what changed between the two versions (ownership transfer, area
+  variance, renumbering, location/year changes) instead of just a table.
+- AI CONSISTENCY EXPLANATION on the Consistency Check tab: a written
+  summary of the cross-document check with a recommendation (verify the
+  chain of title / resolve warnings / proceed with spot-check).
+- AI ACCURACY metrics on the Dashboard: "AI Flagged" (share of records
+  the analysis flagged for review) and "Human Corrections" (total
+  corrections applied by officers - the learning loop's impact).
+Footer: "System Version: 3.5.13".
+
+## WHAT'S NEW IN v3.5.12 (08-Sep-2026) — language packs now land where the exe reads them
+- BUG FIX (Windows build): the 3.5.11 pack copy wrote to
+  dist\LandRecordSystem\tesseract\tessdata, but PyInstaller 6.x one-folder
+  builds put bundled files under dist\LandRecordSystem\_internal\ - which
+  is where the app (via sys._MEIPASS / resource_dir()) actually looks for
+  tesseract and its tessdata. So the exe "installed" but still only saw
+  the English pack and the Indic languages did not show.
+  Step 4b now detects the real location: if
+  dist\LandRecordSystem\_internal\tesseract\ exists (PyInstaller 6.x) the
+  packs go there; otherwise it falls back to dist\LandRecordSystem\
+  tesseract\ (older PyInstaller). The final verification line reads the
+  SAME folder the app reads, so the "Bundled language packs:" output now
+  matches reality.
+- Your packs\ folder from the 3.5.11 run is reused - re-running the build
+  skips the downloads and only re-builds + re-copies (fast).
+- NOTE: rebuilding the exe recreates dist\LandRecordSystem from scratch,
+  so back up dist\LandRecordSystem\data\ first if it holds records you
+  need to keep.
+Footer: "System Version: 3.5.12".
+
+## WHAT'S NEW IN v3.5.11 (08-Sep-2026) — pack download no longer needs admin
+- BUG FIX (Windows build): the 3.5.10 pack download wrote into
+  C:\Program Files\Tesseract-OCR\tessdata, which needs administrator
+  rights - normal users got "Access to the path ... is denied"
+  (UnauthorizedAccessException). The build now downloads the 10 language
+  packs into a local "packs\" folder next to build_exe.bat (no admin
+  needed), verifies all 10 downloaded with a sane size, and copies them
+  into dist\LandRecordSystem\tesseract\tessdata AFTER the exe build
+  finishes (step 4b) - that folder is inside your own directory tree, so
+  it always works. Partial packs from the failed 3.5.10 attempt are
+  harmlessly overwritten.
+Footer: "System Version: 3.5.11".
+
+## WHAT'S NEW IN v3.5.10 (08-Sep-2026) — exe now bundles ALL 11 OCR languages
+- BUG FIX (Windows build): the official Windows Tesseract installer ships
+  ONLY the English language pack, so an exe built from it could OCR English
+  documents but produced garbage on Hindi/Tamil/Telugu/Bengali records
+  (the language dropdown would grey out with "pack not installed", and
+  Auto-detect silently fell back to English).
+  The build now downloads the official fast models for all 11 languages
+  (tesseract-ocr/tessdata_fast: eng, hin, ben, tam, tel, guj, pan, ori,
+  kan, mal, urd - about 34 MB one-time) into the installed tessdata
+  folder, so they are bundled inside the exe. A summary line prints the
+  exact packs found before the build, e.g.
+  "Bundled language packs: ben, eng, guj, hin, kan, mal, ori, pan, tam, tel, urd".
+  Existing packs are skipped, so re-runs are quick.
+- If you already built with 3.5.9, rebuild with this version - your
+  installed Tesseract is already 5.5.3, so the build will only add the
+  language packs and re-bundle the exe.
+Footer: "System Version: 3.5.10".
+
+## WHAT'S NEW IN v3.5.9 (08-Sep-2026) — build script parse-crash fixed for good
+- BUG FIX (Windows build): the 3.5.8 build died with "... was unexpected at
+  this time." right after the admin-rights note. Root cause: the line
+  `echo [2/4] Checking Tesseract OCR (need version >= 5.5)...` contained a
+  `>` - which cmd treats as a FILE REDIRECTION. The rest of that line
+  became a junk file named `= 5.5)...` in the build folder (if you see
+  such a file in C:\landrec, delete it - it is the fingerprint of this
+  bug), and the mangled line left cmd's parser broken, so the next line
+  containing parentheses crashed the script.
+  The whole script was rewritten to be parser-proof:
+  * ZERO parentheses and zero greater-than signs in any echo text
+  * ZERO command lines with parentheses inside blocks
+  * The Tesseract install flow is now FLAT (top-level commands + goto),
+    no nested blocks around the PowerShell download lines
+  * New: explicit "download failed" error if the installer never appears
+    (previously a failed download could continue silently)
+  * A maintainer note in the script documents the parser hazards
+- How to recover from the 3.5.8 attempt: delete the junk file
+  `= 5.5)...` and any leftover `tesseract_setup.exe` in C:\landrec,
+  delete the half-built `dist\LandRecordSystem` folder, extract v3.5.9,
+  run build_exe.bat (right-click -> Run as administrator recommended).
+Footer: "System Version: 3.5.9".
+
+## WHAT'S NEW IN v3.5.8 (08-Sep-2026) — build script no longer dies silently
+- BUG FIX (Windows build): on some PCs the build window closed on its own
+  mid-build (right after the Tesseract download), hiding the failure.
+  Two hardening changes:
+  * build_exe.bat now re-launches itself in a PERSISTENT console window
+    (cmd /k) - a double-clicked .bat window used to vanish the instant the
+    script exited, so build failures disappeared without a trace. The
+    window now stays open for reading no matter what happens.
+  * The Tesseract version check moved out of fragile batch string-parsing
+    (for/f + escaped pipes + delayed expansion, a known source of silent
+    cmd parse aborts) into a tiny dependency-free helper,
+    check_tesseract.py - it prints the detected version line and exits 0
+    only when it is >= 5.5 (verified against 5.4.0, 5.5.0, 5.5.3 and
+    broken paths). The builder also shows an admin-rights note before the
+    silent upgrade and a checkpoint after it, so you always see the
+    version that will be bundled.
+- If the build still fails: the persistent window shows the exact error -
+  send the last ~30 lines. If the Tesseract upgrade is blocked by UAC,
+  re-run with "Run as administrator".
+Footer: "System Version: 3.5.8".
+
+## WHAT'S NEW IN v3.5.7 (08-Sep-2026) — Windows exe now bundles Tesseract 5.5.x
+- BUG FIX (Windows build): build_exe.bat used to bundle whatever Tesseract
+  happened to be installed on the build machine — so a PC with the old
+  5.4.0 installer silently shipped an exe with Tesseract 5.4.0, and the
+  auto-download pointed at a GitHub "latest" release that has been STUCK
+  at 5.4.0 since June 2024 (the current official installers are published
+  by the main tesseract-ocr/tesseract project, not the UB-Mannheim fork).
+  The builder now REQUIRES Tesseract >= 5.5: it reads the installed
+  version, and if it is older it downloads the official
+  tesseract-ocr-w64-setup-5.5.3.20260724.exe (25 MB, pinned URL verified
+  working) with a fallback to the main project's latest release. A final
+  safety net refuses to bundle an exe with Tesseract < 5.5 (run the
+  builder with administrator rights if the silent upgrade is blocked by
+  UAC). Fresh builds show "tesseract v5.5.3" in the System Status panel.
+Footer: "System Version: 3.5.7".
+
+## WHAT'S NEW IN v3.5.6 (08-Sep-2026) — DILRMP-portal feature set (aligned)
+Aligned with the reference DILRMP portal (document-screening reference site),
+built on our OWN Tesseract OCR (not Indic AI):
+- VERIFICATION QUEUE tab (Verification Officer + Admin): every record in
+  pending_review with Queue ID / File Name / Type / Submitted By /
+  Confidence / Landowner / Survey-Khasra / Review. Review opens the
+  record for field correction, then Save & Verify (approve) or
+  Return with Notes (send back to the data officer).
+- COMPARISON tab, both reference modes:
+  * Compare Existing Records — pick Document A (previous) and Document B
+    (current) -> side-by-side field diff with changed rows highlighted
+    and callouts for ownership change / area variance / survey-khasra-
+    khata modification.
+  * Upload Two Documents — two fresh scans are OCR-processed
+    transiently (NOT saved to the repository) and diffed the same way.
+- CONSISTENCY CHECK tab: tick 2-6 records from the picker ->
+  cross-document conflict flags (same survey no. with different owners,
+  identical survey+khasra+owner duplicates, district-context warnings,
+  family/chain-of-title hints) plus a per-document summary table.
+- Public Search tab REMOVED (it was not part of the reference portal).
+- BUG FIX (crash recovery): if the OCR worker died in the tiny window
+  between the liveness check and the pipe write (kill -9, OOM, native
+  crash), the request used to get a 500. A broken write pipe is now
+  treated as a dead worker: respawn + retry, same as any other crash.
+- Document type classification: Land Record (Khatauni/ROR/7-12),
+  Mutation (Namantaran/Ferfar), Sale Deed, Tax Receipt — chosen at
+  upload, stored, shown, and filterable.
+- Full verification workflow: Save as Draft -> Submit for Verification
+  -> Verified OR Returned with reviewer notes (status banners in the
+  detail view; drafts/pending/returned/total counters on the dashboard).
+- CRYPTOGRAPHIC audit trail: every audit entry is SHA-256 hash-chained;
+  "Verify Integrity" button recomputes the chain and flags any tampered
+  entry (tamper detection verified: alter one entry -> chain broken).
+Footer: "System Version: 3.5.6".
+
+## WHAT'S NEW IN v3.5.4 (26-Aug-2026) — final all-languages verification
+- COMPLETE Urdu label set (all 15 fields) — the previous build only had
+  a few Urdu labels, which is why Urdu documents came out nearly empty.
+- Urdu/Arabic text is restored to logical order in pure Python (no extra
+  dependency) — verified against Tesseract's actual visual-order output.
+- If a document's language pack is NOT installed on the machine, the app
+  now shows a clear error ("Tesseract language pack 'tam' is not
+  installed...") instead of silently OCRing with the wrong language.
+- Year values cleaned of stray brackets; RTL value-before-label handling.
+- Full verification on the final code: 56/56 system checks, 12/12
+  regression tests, exe worker entry-point test, zip-contents match disk.
+  11-language sample pack: 133/165 fields auto-extracted (81%).
+Footer: "System Version: 3.5.4".
+
+## WHAT'S NEW IN v3.5.3 (26-Aug-2026) — all-languages extraction fix
+Team bug fixed: documents in Gujarati/Kannada/Malayalam/Punjabi/Odia/
+Urdu came out with no fields. Fixed:
+- Bare label forms + regional PLOT labels added for all 8 regional
+  scripts (plot labels were missing entirely for them).
+- Zero-width characters (which Indic OCR sticks inside words) are now
+  stripped from the WHOLE text before label matching.
+- Fuzzy label matcher loosened: OCR's one-glyph add/drop and
+  neighbour transpositions (پلاٹ -> پالٹ, خسرا -> ذخسرا) now match.
+- Urdu (Arabic script) is read by Tesseract in VISUAL order — the engine
+  now restores LOGICAL order per line (bidi) before matching, so Urdu
+  labels match; number runs are preserved.
+- arabic-reshaper + python-bidi added to requirements (bundle with exe).
+Verified against the real Tesseract engine, all 11 languages:
+  English 15/15, Punjabi 15/15, Hindi/Tamil/Telugu/Gujarati 14/15,
+  Kannada/Malayalam/Odia 11/15, Bengali 9/15, Urdu 4/15 (Tesseract's
+  current ceiling for the script — the verification workflow handles it).
+Footer: "System Version: 3.5.3".
+
+## WHAT'S NEW IN v3.5.2 (26-Aug-2026) — multilingual extraction fix
+Team bug fixed: regional-language documents (Bengali/Telugu/Tamil) came
+out with many/ALL empty fields. Root cause: the label dictionary only
+knew Hindi+English label words, so e.g. a Bengali "মালিক" line could
+never be recognized as the owner field. Fixed:
+- 40+ regional label forms added (Tamil, Telugu, Bengali, Gujarati,
+  Kannada, Malayalam, Punjabi, Odia) for all 16 fields, incl. bare
+  forms (स्वामी, खाता, प्लॉट, मालিক, প্লট...) and fiscal-year words.
+- Fuzzy label matcher now tolerates first-letter OCR confusion on long
+  labels (district -> Oistrict) and strips zero-width joiners that
+  Indic OCR sticks to tokens.
+- Year fallback: even when the year LABEL is mangled, the fiscal year
+  itself (2024-25) is still found.
+The training sample pack v2 was also regenerated (Noto/Lohit font mix,
+bigger text, native labels, year lines): 9/16 samples now extract
+15/15 fields out of the box.
+Footer: "System Version: 3.5.2".
+
+## WHAT'S NEW IN v3.5.1 (26-Aug-2026) — full-system test pass
+Ran a 56-check system battery (auth, roles, password policy, lockout,
+deactivation, export/import, uploads, size limits, corrupt files,
+duplicates, 4 parallel uploads, path traversal, rate limiting,
+verify workflow, audit trail, leak test, crash recovery, security
+headers). Found and fixed 1 real gap:
+- The sample-processing endpoint bypassed the OCR rate limit
+  (the upload endpoint had it, the sample one didn't) — now both
+  share the same 10/min/IP budget.
+Result after fix: 56/56 checks passed, 0 failed.
+Footer: "System Version: 3.5.1".
+
+## WHAT'S NEW IN v3.5 (26-Aug-2026) — "previous document's data" fix
+Team bug fixed: uploading a second document used to show the FIRST
+document's corrected values. Root cause: the AI learning loop did a
+blind substring replace of whole values (owner 'रामस्वरूप शर्मा'
+-> 'रामस्वरूप शर्मा अग्रवाल' on doc 1 was re-applied to EVERY later
+document containing that name). Reproduced, then fixed safely:
+- Learned rules now apply ONLY to text fields, ONLY when the wrong
+  string is a single word of 4+ chars (a real OCR-typo pattern),
+  ONLY after TWO independent verifications, first occurrence only.
+- Numeric fields (survey/khasra/khata/plot/mutation/registration)
+  are NEVER auto-corrected — numbers are document-specific.
+- Auto-corrected fields now show a "🤖 auto-corrected — check this"
+  badge in the verification screen.
+- AI Feedback tab: every learned rule shows "active" / "recorded
+  only" + a per-row DELETE button (undo any rule instantly).
+Also: extraction now cuts dense single-line records at the next
+field label (fixes owner values swallowing the father's name), and
+the language dropdown greys out packs that are not installed.
+Footer: "System Version: 3.5".
+
+## WHAT'S NEW IN v3.4 (26-Aug-2026) — One-Click Full Self-Test
+The System Status panel now has a big blue button:
+  [🧪 FULL SELF-TEST चलाएँ]
+It runs the ENTIRE pipeline on your machine — Tesseract, language
+packs, worker start, OCR auto-detect, OCR with hint, PDF, field
+extraction — and shows a pass/fail checklist with timings. If any
+line is ❌, press [📋 Copy Full Report] and send that text: it tells
+the developer exactly what to fix in ONE round.
+Footer: "System Version: 3.4".
+
+## WHAT'S NEW IN v3.3 (26-Aug-2026) — "OCR worker process died" fix
+The System Status panel showed: OCR engine (worker) = "OCR worker
+process died". Three things fixed:
+1. Worker mode is now passed by COMMAND-LINE ARGUMENT (plus the env var
+   as backup) - some Windows environments mangle env vars of spawned
+   children; an argument cannot be lost.
+2. The stdout "health check" now NEVER writes to pipes - in worker mode
+   stdout IS the binary protocol to the server, and even one stray byte
+   corrupts it and kills the handshake. (Broken console handles are
+   still detected and redirected to the log, as before.)
+3. The worker's own error output now goes to its own file:
+   dist\LandRecordSystem\data\worker.log  (the path is shown in the
+   System Status panel as "OCR worker log"). If OCR ever fails to start
+   on your PC again, send THAT file - it contains the exact reason.
+Footer: "System Version: 3.3".
+
+## WHAT'S NEW IN v3.2 (26-Aug-2026) — CRITICAL WINDOWS FIX
+OCR finally works on Windows PCs. Two bugs found from the local
+System Status panel:
+1. [WinError 10038] - the worker communication used select.select(),
+   which Windows rejects on pipe connections (it only accepts sockets).
+   The OCR engine could NEVER start on a Windows machine - which is why
+   the preview (Linux) worked but the local .exe showed "Server error".
+   Fixed: pipe reading is now cross-platform (one reader thread per
+   pipe, works identically on Windows/Linux/macOS).
+2. The System Status Tesseract line now also checks the BUNDLED
+   tesseract (dist\LandRecordSystem\tesseract\) - it used to only look
+   at PATH and show a false "not found".
+Footer now shows "System Version: 3.2". If OCR still misbehaves after
+this build, the System Status panel + server.log will show the real
+reason (this version cannot have the 10038 bug - it is impossible).
+
+## WHAT'S NEW IN v3.1 (26-Aug-2026) — "processing stuck forever" fix
+If your uploads ever looked frozen on "processing..." with no result:
+1. The processing screen now shows LIVE progress: which stage the OCR
+   engine is in (detecting language / running OCR / page 2 of 5) plus a
+   running seconds counter. It can never look frozen again.
+2. The OCR engine now starts WHEN THE APP STARTS, not during your first
+   upload — the first upload is no longer the slow one.
+3. If the OCR engine cannot start, you get a CLEAR ERROR IMMEDIATELY
+   (with the reason, e.g. missing Tesseract) instead of waiting minutes.
+4. Slow big files (5-page PDFs on a slow PC) can now take up to 25
+   minutes without being killed mid-way — they simply finish.
+5. No more black terminal window flashing while OCR runs.
+6. The site footer shows "System Version: 3.1". If your local website
+   shows an OLDER number, you are running an OLD build — re-run
+   build_exe.bat with the new files.
+
+
+## Quick start (Windows)
+
+1. Install **Python 3.9+** from https://www.python.org/downloads/
+   (IMPORTANT: tick "Add Python to PATH" during installation).
+
+2. Install **Tesseract OCR** from https://github.com/UB-Mannheim/tesseract/wiki
+   During setup, also tick the language packs you need (e.g. Hindi).
+   Default install location is fine.
+
+3. Double-click **start.bat**
+
+   The first run downloads dependencies (needs internet, ~2-3 min), then
+   opens your browser at http://localhost:8000 automatically.
+
+4. Sign in with the default administrator:
+   - Email:    admin@landrec.gov.in
+   - Password: Admin@123
+   (Change this password right away — Account tab.)
+
+## Quick start (macOS / Linux)
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+(Requires: Python 3.9+ and Tesseract — `brew install tesseract tesseract-lang`
+on macOS, or `sudo apt-get install tesseract-ocr tesseract-ocr-hin` on Debian/Ubuntu.)
+
+## Building the app .exe (Windows) — one-folder build
+
+Double-click **build_exe.bat**. It creates the folder
+`dist\LandRecordSystem\` with the app inside.
+
+- **Run it from:** `dist\LandRecordSystem\LandRecordSystem.exe`
+- **Why one-folder instead of one-file:** a one-file exe re-unpacks ~300 MB
+  into a temp folder on EVERY start and must delete it on exit — that
+  deletion is what caused the "Failed to remove temporary directory" popup
+  (Windows/antivirus briefly locks files). One-folder mode has **no temp
+  files at all**: the popup is impossible, and startup is much faster
+  (a few seconds instead of 30 s - 2 min).
+- No terminal window opens. On start you first see a small
+  **"Land Record System - starting up"** window, then your browser opens
+  **by itself as soon as the website is ready**. If the browser does not
+  open, visit http://localhost:8000.
+- Server log: `dist\LandRecordSystem\data\server.log`
+- **NEVER delete the `dist\LandRecordSystem` folder** — your database
+  (all accounts + records) lives in its `data\` subfolder.
+- **Closing all browser tabs stops the server almost immediately** (within
+  ~10-15 seconds) — just like closing the old terminal window. Double-click
+  the .exe again anytime to start fresh; your data is kept.
+  (The short grace only protects page refreshes: pressing F5 will NOT kill
+  the server.)
+- To stop it right now: Task Manager (Ctrl+Shift+Esc) → end
+  `LandRecordSystem.exe` (there may be 2-3 of them: launcher, server,
+  OCR engine — end all of them).
+
+### Sending the app to a teammate
+
+1. Select the whole `dist\LandRecordSystem` folder
+2. Right-click → **Compress to ZIP** (or any zip tool)
+3. Send the zip. They: **unzip anywhere → double-click
+   `LandRecordSystem.exe`**. No Python or Tesseract install needed.
+   First run may show SmartScreen "Windows protected your PC" →
+   **More info → Run anyway** (normal for a free, unsigned app).
+
+### Crash-proof by design (no file can kill the website)
+The program runs in 3 layers:
+  1. MONITOR  - watches the server; if the server ever dies, restarts it
+                in ~2 s (your tab shows "reconnecting" and heals itself).
+  2. SERVER   - the website (HTTP/SQLite only). It contains NO native OCR
+                code, so a bad file physically cannot crash it.
+  3. OCR WORKER - all OCR (OpenCV/Tesseract/PyMuPDF) runs here, in a
+                disposable process. A pathological file can at worst kill
+                the WORKER: that one upload gets a clean error, a fresh
+                worker starts automatically, and the next file is fine.
+                (The same file is even retried once automatically.)
+Plus hard size limits: images above 15000 px on the longest side are
+rejected before decoding (no out-of-memory kills), 10000-15000 px are
+auto-downscaled.
+- Task Manager note: you may see several LandRecordSystem.exe entries
+  (monitor + server + OCR worker) - that is normal. End ALL of them to
+  stop everything (or just close the browser tab - everything stops
+  cleanly within ~10 s).
+
+### "Windows protected your PC" (SmartScreen) — what to do
+Windows shows this warning for any free, unsigned .exe. It is NORMAL, not a
+virus. To run the app:
+1. Click **More info** → **Run anyway**.
+2. (For your team/IT) permanently allow it in
+   **Windows Security → App & browser control → SmartScreen**, or have the
+   organisation sign the exe with a code-signing certificate.
+
+Alternative without the warning: run the app from `start.bat` (uses Python,
+which Windows already trusts) instead of the .exe.
+
+## Team accounts — important! (Why a teammate's login can fail)
+
+**Every computer has its OWN database** (`data\landrec.db` next to where you
+run the app — for the .exe that is `dist\data\landrec.db`). Accounts created
+on one computer do NOT exist on another computer.
+
+So if you create an account and share its email/password with a teammate but
+they run their own copy of the app, their login will say
+"no account with this email" — and only the default admin works.
+
+Correct workflow for a teammate:
+1. Your teammate runs the app on **their** computer.
+2. **Option A (easiest — account export/import):** On your computer, open the
+   **Users tab → ⬇️ Export** (downloads `landrec-accounts.json`). Send that
+   file to your teammate. On **their** computer, open **Users tab → ⬆️ Import**
+   and pick the file. Their account now exists on their computer.
+   **Option B:** You (admin) log in on THEIR computer (or remote in), open
+   **Users tab → Create User**, and create their account there.
+3. If a teammate forgets their password: **Users tab → 🔑 Reset Password**
+   on that same computer. The reset is recorded in the audit log.
+
+Security notes (this build):
+- Anyone can self-register — new accounts always start as Data Operator
+  (least privilege). The System Administrator promotes them to
+  Verification Officer / Admin from the Users tab.
+- Passwords: minimum 8 characters, must contain a letter and a number/symbol,
+  stored as PBKDF2-SHA256 (200,000 iterations) — never in plain text.
+- 5 wrong logins per email → 5-minute lock; per-IP rate limits on login and
+  OCR upload (10/minute).
+- Session tokens: HttpOnly cookie + Authorization header (the secure
+  channels). A ?token= query fallback is kept ONLY as a last resort for the
+  sandboxed live-preview iframe (which strips the Authorization header);
+  the real .exe (localhost) uses the secure cookie/header channels.
+- Uploaded files: size/type validated, stored under random names.
+- Sample-file endpoint: strict filename check (no path traversal).
+- Full audit trail of logins, verifications, corrections, password resets,
+  account exports/imports.
+- Share accounts between computers with Users tab → ⬇️ Export / ⬆️ Import
+  (a portable JSON file with password hashes — send it to the other PC).
+- If you deploy over HTTPS (reverse proxy), session cookies are automatically
+  flagged `secure`.
+
+## What's inside
+
+- `landrec/` — the application (FastAPI backend + web UI)
+- `samples/` — sample scanned land records (Hindi, English, Tamil, Telugu, PDF)
+- `start.bat` / `start.sh` — one-click launchers
+- `build_exe.bat` — builds the single-file .exe (no console window)
+- `requirements.txt` — Python dependencies
+- `data/` — created automatically (SQLite database, uploads, signing key)
+
+## Roles
+
+- Admin (admin@landrec.gov.in by default) — full control, manages users,
+  resets passwords
+- Verification Officer — verifies & corrects extracted records, sees audit log
+- Data Operator — uploads & processes documents
+- Viewer — read-only
+
+## For your IT team (server deployment)
+
+Run behind a reverse proxy (nginx/Caddy) for HTTPS, and move the SQLite DB to
+PostgreSQL for multi-user production use. The REST API is documented in the
+project README.md (landrec/README.md).
+
+## Troubleshooting
+
+- "OCR failed" → Tesseract is not installed or not on PATH. Install it, or set
+  the `PYTESSERACT_PATH` environment variable to tesseract.exe's full path.
+- Port 8000 already in use → the .exe now shows a dialog; with start.bat, edit
+  the `--port 8000` in start.bat/start.sh.
+- To reach the app from another computer on your network, use your machine's
+  IP instead of localhost, e.g. http://192.168.1.50:8000
+- The .exe seems to "do nothing" → check Task Manager for
+  `LandRecordSystem.exe`; server log at `dist\data\server.log`.
+- "Failed to remove temporary directory" popup → only possible with OLD
+  single-file builds (they unpack a temp folder and must delete it on
+  exit). This build is **one-folder**: no temp folder exists, so the popup
+  cannot happen. If you still see it, you are running an old exe — close
+  it, rebuild with the current build_exe.bat, and run
+  `dist\LandRecordSystem\LandRecordSystem.exe` from the new folder.

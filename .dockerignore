@@ -1,0 +1,17 @@
+# never bake the live local database / uploads / logs into the image
+extracted/data/
+data/
+*.log
+
+# python cruft
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+
+# build artifacts (regenerable from source)
+*.zip
+
+# not needed inside the image
+tests/
+.git/

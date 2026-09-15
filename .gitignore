@@ -1,0 +1,21 @@
+# ---- runtime data (NEVER commit: DB, uploads, logs, signing secret) ----
+data/
+*/data/
+*.log
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ---- build artifacts (zips are generated from source — keep source only) ----
+*.zip
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
