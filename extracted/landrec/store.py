@@ -1206,6 +1206,12 @@ def mark_verified(doc_id, corrections, user):
     ts = time.time()
     audit_rows = []
     for fid, newval in (corrections or {}).items():
+        # Accept BOTH plain-string corrections (what the web UI sends) and
+        # dict-shaped ones ({"value": ...}) from API clients — before this
+        # fix a dict correction crashed mark_verified with AttributeError
+        # and the whole verify request died with a 500.
+        if isinstance(newval, dict):
+            newval = newval.get("value", "")
         old = fields.get(fid, {}).get("value", "") if fid in fields else ""
         newval = (newval or "").strip()
         if fid in fields:

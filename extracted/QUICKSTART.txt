@@ -3,6 +3,40 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.5 (16-Sep-2026) — JUDGE-READY DEMO DATA: every feature is pre-loaded and pre-worked (no manual uploads needed)
+### 1) First boot now seeds a COMPLETE demo office (19 records, 2 mutations)
+Every fresh install / hosted deploy (local start.bat / .exe, or Render after
+each redeploy) boots with a rich, realistic dataset — all of it captured
+from REAL runs of the OCR pipeline on the bundled samples, so the fields,
+confidences, OCR text and AI behaviour are genuine engine output:
+  * 8 verified (certified), 7 pending review, 2 auto-approved, 1 draft,
+    1 REJECTED with a real conflict explanation
+  * a YEAR-WISE TRANSFER CHAIN on survey 452 / Sundarpur: 2019-20
+    (Ram Bahadur Singh) + a conflicting 2019 copy (Mahesh Verma, rejected)
+    -> 2021-22 sale -> 2023-24 (Kamla Devi Singh) — open any of them and
+    press the year-wise history ("passbook") to see ownership change
+  * 4 scripts: English, Hindi, Telugu, Tamil (khatauni / jamabandi /
+    pahani / patta / PDF)
+  * an AI-ROUTED unreadable scan (blank page auto-sent to the least-loaded
+    verification officer with a diagnosis) + an AI-rescued blurry scan
+  * exact GPS pins (Arera / Barkheda) and plot boundaries — 2 estimated
+    from recorded area, 1 digitized corner-by-corner
+  * 2 mutation applications: one still in the queue (Arera) and one full
+    lifecycle received -> under review -> verified, which updated the
+    linked 2023 record's owner
+  * a complete hash-chained audit trail of every action above
+### 2) Bug fix: verify endpoint crashed (500) on dict-shaped corrections
+`store.mark_verified` assumed every correction value was a plain string
+(what the web UI sends). An API client sending the natural dict shape
+({"value": ...}) crashed the whole verify request with AttributeError.
+Now both shapes are accepted (verified by test).
+### 3) Verification (all green on v3.9.5)
+Seeded state compared field-by-field against the original pipeline run:
+0 mismatches (19 docs, statuses, pins, boundaries, routing, owners, OCR
+text, 2 mutations). System 56 · map tab 61 · full-page sim 11 · regression
+18 · map sheet 12 · geocode 5 · boundary 31 · reject flow 18 · AI rescue 37 ·
+OCR lang-pack 9 · digitize-coords 16 · feature suites 45+38.
+
 ## WHAT'S NEW IN v3.9.4 (15-Sep-2026) — Map: OSM Standard now has an automatic MIRROR fallback (fixes "OSM tiles access blocked")
 ### Problem
 On some networks (ISPs, office proxies, certain regions) the main OSM tile
