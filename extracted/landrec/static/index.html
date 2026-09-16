@@ -1568,6 +1568,7 @@
               title="Map tile source — switch this if tiles are blocked/unavailable on your network"
               style="font-size:12px;padding:7px 8px;border:1px solid var(--gov-border);border-radius:6px;background:#fff">
               <option value="osm">🗺️ Map: OSM Standard</option>
+              <option value="osm_de">🗺️ Map: OSM Standard (mirror)</option>
               <option value="carto">🗺️ Map: CARTO (light)</option>
               <option value="esri">🛰️ Map: Satellite (Esri)</option>
               <option value="topo">⛰️ Map: Topographic</option>
@@ -3859,6 +3860,13 @@ const MAP_TILE_SOURCES = {
   osm:   { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
            options: { maxZoom: 19 },
            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors' },
+  // Same OSM Standard rendering, served from the openstreetmap.de tile
+  // servers (a/b/c subdomains). Some networks (ISPs, office proxies,
+  // certain regions) block/throttle the main tile.openstreetmap.org host —
+  // this mirror is the first fallback so "OSM Standard" still works.
+  osm_de:{ url: 'https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png',
+           options: { maxZoom: 19, subdomains: 'abc' },
+           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors (openstreetmap.de mirror)' },
   carto: { url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
            options: { maxZoom: 19, subdomains: 'abcd' },
            attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/" target="_blank">CARTO</a>' },
@@ -3876,7 +3884,7 @@ function mapCurrentTileSource(){
 // If the active tile source can't load on THIS network (ISP/proxy blocks
 // OSM etc.), automatically try the next source — the map should "just
 // work" regardless of which tile server the network allows.
-const TILE_SOURCE_ORDER = ['osm', 'esri', 'carto', 'topo'];
+const TILE_SOURCE_ORDER = ['osm', 'osm_de', 'esri', 'carto', 'topo'];
 let mapTileFailStreak = 0;   // consecutive failed sources (0 = healthy)
 function mapAttachTileHealth(tl){
   let loadedOnce = false, failScheduled = false;
@@ -3918,7 +3926,7 @@ function mapAttachTileHealth(tl){
     }, 4000);
   });
 }
-const TILE_LABELS = { osm:'OSM', esri:'Satellite (Esri)', carto:'CARTO', topo:'Topographic', schematic:'Schematic' };
+const TILE_LABELS = { osm:'OSM', osm_de:'OSM (mirror)', esri:'Satellite (Esri)', carto:'CARTO', topo:'Topographic', schematic:'Schematic' };
 function mapSetTileSource(key, auto){
   const sel = $('#mapTileSource');
   if(sel && sel.value !== key) sel.value = key;

@@ -3,6 +3,23 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.4 (15-Sep-2026) — Map: OSM Standard now has an automatic MIRROR fallback (fixes "OSM tiles access blocked")
+### Problem
+On some networks (ISPs, office proxies, certain regions) the main OSM tile
+host `tile.openstreetmap.org` is blocked or throttled. The app's auto-fallback
+then jumped straight to SATELLITE (Esri) — a completely different map look —
+even though the user only wanted "OSM Standard".
+### Fix
+Added the openstreetmap.de tile servers (a/b/c subdomains, same OSM Standard
+rendering) as a new source **"OSM Standard (mirror)"** and made it the FIRST
+fallback in the auto chain:
+  OSM Standard → **OSM Standard (mirror)** → Satellite (Esri) → CARTO → Topographic
+So when the main OSM host is blocked, the map now keeps the OSM Standard look
+via the mirror instead of flipping to satellite. If even the mirror is
+blocked, it falls through to Esri/CARTO/topo as before. The mirror is also
+available manually from the map source dropdown.
+Verified the mirror serves valid tiles (200 + PNG) at zoom 5/10/13.
+
 ## WHAT'S NEW IN v3.9.3 (15-Sep-2026) — OCR "broken" fixes (Windows auto-detect + missing language-pack diagnosis) + verified coordinate-input re-digitize
 ### 1) OCR: Tesseract is now auto-found on Windows (no PATH needed)
 Windows' default Tesseract install (C:\Program Files\Tesseract-OCR) is NOT on
