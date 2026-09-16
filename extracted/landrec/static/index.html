@@ -1574,6 +1574,12 @@
               <option value="topo">⛰️ Map: Topographic</option>
               <option value="schematic">📐 Schematic (works fully offline)</option>
             </select>
+            <select id="mapShowMode" onchange="mapSetShowMode(this.value)"
+              title="Which record positions to draw on the map"
+              style="font-size:12px;padding:7px 8px;border:1px solid var(--gov-border);border-radius:6px;background:#fff">
+              <option value="selected">📍 Show: Selected record</option>
+              <option value="all">🌍 Show: All records</option>
+            </select>
             <label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer" id="mapPinLabel">
               <input type="checkbox" id="mapPinMode" onchange="mapTogglePinMode()">
               📍 Set exact pin (click map)
@@ -1602,6 +1608,9 @@
                 <div id="mapLoadHint" style="position:absolute;top:46%;left:50%;transform:translate(-50%,-50%);z-index:999;background:rgba(255,255,255,.92);border:1px solid var(--gov-border);border-radius:10px;padding:10px 18px;font-size:12.5px;color:#334155;box-shadow:0 4px 14px rgba(15,43,72,.12);text-align:center;pointer-events:none">
                   <span class="spinner" style="display:inline-block;vertical-align:middle;margin-right:8px"></span>
                   Loading map tiles… <span style="color:var(--muted)">(markers already placed underneath)</span>
+                </div>
+                <div id="mapSelectHint" class="hidden" style="position:absolute;top:46%;left:50%;transform:translate(-50%,-50%);z-index:998;background:rgba(255,255,255,.94);border:1px solid var(--gov-border);border-radius:10px;padding:10px 18px;font-size:12.5px;color:#334155;box-shadow:0 4px 14px rgba(15,43,72,.12);text-align:center;pointer-events:none;max-width:88%">
+                  📍 <b>No record selected.</b> Pick one from the list (or the Village Sheet) to see its location on the map —<br>or switch to <b>🌍 Show: All records</b> above for the whole-village view.
                 </div>
                 <div id="mapSchematicNote" class="hidden" style="position:absolute;bottom:26px;left:50%;transform:translateX(-50%);z-index:1000;background:rgba(255,255,255,.95);border:1px solid var(--gov-border);border-radius:8px;padding:6px 14px;font-size:11.5px;color:#334155;box-shadow:0 2px 8px rgba(15,43,72,.12);white-space:nowrap;max-width:95%;overflow:hidden;text-overflow:ellipsis">
                   📐 Schematic view — every marker is at its REAL lat/lon position (no internet needed). Pick a tile source above for the full map.
@@ -3828,6 +3837,9 @@ async function loadMapTab(force){
     const fb = $('#mapFallback'); if(fb) fb.classList.remove('hidden');
   }
   mapRenderList();
+  // show-mode selector (selected-only is the default: no stray dots)
+  const smEl = $('#mapShowMode');
+  if(smEl){ mapShowMode = mapGetShowMode(); smEl.value = mapShowMode; }
   // NOTE: fitting happens when the map VIEW is shown (see mapSwitchView) —
   // fitting while the container is hidden computes a zero-size view.
 }
@@ -3878,6 +3890,29 @@ const MAP_TILE_SOURCES = {
            attribution: '&copy; OpenStreetMap contributors, SRTM | style &copy; <a href="https://opentopomap.org" target="_blank">OpenTopoMap</a> (CC-BY-SA)' },
 };
 let mapTileLayer = null;
+
+// Which record positions to draw: 'selected' (only the currently selected
+// record — the map stays clean, no stray dots) or 'all' (every located
+// record — the whole-village GIS view). Persisted per browser.
+let mapShowMode = 'selected';
+function mapGetShowMode(){
+  try { const v = localStorage.getItem('lrMapShowMode'); if(v === 'all' || v === 'selected') return v; } catch(e){}
+  return 'selected';
+}
+function mapSetShowMode(m){
+  mapShowMode = (m === 'all') ? 'all' : 'selected';
+  try { localStorage.setItem('lrMapShowMode', mapShowMode); } catch(e){}
+  const el = $('#mapShowMode'); if(el) el.value = mapShowMode;
+  mapDrawMarkers();
+  mapDrawBoundaries();
+}
+// Rows that should get a marker right now.
+function mapMarkerRows(){
+  if(mapShowMode === 'selected'){
+    return mapSelectedId ? mapRecords.filter(r => r.id === mapSelectedId) : [];
+  }
+  return mapFiltered();
+}
 function mapCurrentTileSource(){
   try { return localStorage.getItem('lrTileSource') || 'osm'; } catch(e) { return 'osm'; }
 }
@@ -4012,7 +4047,11 @@ function mapRenderList(){
 function mapDrawMarkers(){
   if(!mapLeaflet || !mapMarkers) return;
   mapMarkers.clearLayers();
-  mapFiltered().forEach(r=>{
+  const rows = mapMarkerRows();
+  // "Show: Selected record" with nothing selected -> clean map + hint
+  const sh = $('#mapSelectHint');
+  if(sh) sh.classList.toggle('hidden', !(mapShowMode === 'selected' && !mapSelectedId && rows.length === 0));
+  rows.forEach(r=>{
     let lat = r.lat, lon = r.lon;
     const key = mapVillageKey(r);
     if(lat==null || lon==null){
@@ -4089,7 +4128,7 @@ function mapRingCentroid(ring){
 function mapDrawBoundaries(){
   if(!mapLeaflet || !mapBoundaryLayer) return;
   mapBoundaryLayer.clearLayers();
-  mapFiltered().forEach(r=>{
+  mapMarkerRows().forEach(r=>{
     if(!r.boundary || r.boundary.length < 3) return;
     const est = r.boundary_source === 'estimated';
     const poly = L.polygon(r.boundary, {
@@ -4167,6 +4206,8 @@ function mapSelectBoundaryRecord(id){
   const rec = mapRecords.find(x => x.id === id); if(!rec) return;
   mapSelectedId = id;
   mapRenderList();
+  mapDrawMarkers();   // "Show: Selected record" mode: draw this record on demand
+  mapDrawBoundaries();
   if(mapLeaflet && rec.boundary && rec.boundary.length >= 3){
     try { mapLeaflet.flyToBounds(L.latLngBounds(rec.boundary), { padding: [50, 50], maxZoom: 17 }); } catch(e){}
   } else if(mapLeaflet){
@@ -4398,7 +4439,7 @@ function mapVillageKey(r){ return (r.village||'') + '|' + (r.district||'') + '|'
 
 function mapFitAll(){
   if(!mapLeaflet) return;
-  const pts = mapFiltered().filter(r=>(r.lat!=null&&r.lon!=null) || mapVillageCache[mapVillageKey(r)]).map(r=>{
+  const pts = mapMarkerRows().filter(r=>(r.lat!=null&&r.lon!=null) || mapVillageCache[mapVillageKey(r)]).map(r=>{
     const c = (r.lat!=null&&r.lon!=null) ? [r.lat,r.lon] : mapVillageCache[mapVillageKey(r)];
     return c;
   });
@@ -4417,6 +4458,7 @@ async function mapSelectRecord(id){
     return;
   }
   if(r.lat!=null && r.lon!=null){
+    mapDrawMarkers();  // in "Show: Selected record" mode the dot is drawn on demand
     mapLeaflet.flyTo([r.lat, r.lon], 15, { duration: 0.8 });
     mapOpenMarkerPopup(id);
     mapOpenBoundaryCard(id);

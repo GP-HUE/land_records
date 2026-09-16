@@ -3,6 +3,28 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.6 (16-Sep-2026) — Map: "Show: Selected record / All records" toggle (no more stray dots)
+### Problem
+The Real Map drew a marker for EVERY located record at all times — so with no
+record selected, green/blue dots of unrelated owners (e.g. "Ram Swaroop",
+"Ram Bahadur") were already on the map and looked confusing.
+### Fix
+New map toolbar control **📍 Show: Selected record / 🌍 Show: All records**:
+  * DEFAULT = **Selected record** — the map stays clean; a marker (and its
+    plot boundary) is drawn only for the record you select from the list or
+    the Village Sheet. With nothing selected, a hint overlay explains:
+    "Pick a record to see its location — or switch to Show: All records."
+  * **All records** = the previous whole-village GIS view (every pinned /
+    village-geocoded / district-estimated dot), for the "see the whole
+    village" demo moment.
+  * The choice is remembered per browser (localStorage).
+  * Selection now draws on demand (exact-pin, village-geocode and
+    boundary-polygon paths all re-draw the selected record's marker), and
+    map auto-fit fits the rows actually being shown.
+Verified: full-page simulation 18/18 (incl. 7 new show-mode checks:
+empty-when-unselected, exactly-one-on-select, all-rows-in-all-mode,
+persistence, invalid-value fallback) and map-tab suite 67/67.
+
 ## WHAT'S NEW IN v3.9.5 (16-Sep-2026) — JUDGE-READY DEMO DATA: every feature is pre-loaded and pre-worked (no manual uploads needed)
 ### 1) First boot now seeds a COMPLETE demo office (19 records, 2 mutations)
 Every fresh install / hosted deploy (local start.bat / .exe, or Render after

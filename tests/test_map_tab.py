@@ -107,6 +107,12 @@ def main():
         ("tile source persisted", "lrTileSource"),
         ("banner suggests schematic", "Use Schematic (offline)"),
         ("banner mentions blocked network", "blocked on this network"),
+        ("show-mode select (selected/all)", 'id="mapShowMode"'),
+        ("show-mode: selected option", 'value="selected"'),
+        ("show-mode: all option", 'value="all"'),
+        ("show-mode helper", "function mapMarkerRows()"),
+        ("show-mode persists", "lrMapShowMode"),
+        ("empty-map hint (no selection)", 'id="mapSelectHint"'),
         ("old OSM-only layer gone", "mapTileLayer = L.tileLayer(src.url"),
     ]
     for name, needle in checks:
