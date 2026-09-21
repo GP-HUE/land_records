@@ -3,12 +3,13 @@
 Requires a freshly seeded demo DB (the Sundarpur SBI loan + Barkheda PNB
 loan scenario) and a running server on :8000.
 """
+import os
 import json
 import sys
 import urllib.error
 import urllib.request
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("LR_BASE", "http://127.0.0.1:8000")
 PASS = FAIL = 0
 
 
@@ -159,7 +160,7 @@ def main():
 
     # ============ E. owner-name matcher (script/spelling tolerant) ============
     print("\n--- E. owner matcher ---")
-    sys.path.insert(0, "/home/user/land_records/extracted")
+    sys.path.insert(0, os.environ.get("LR_ROOT", "/home/user/land_records/extracted"))
     from landrec.risk import _same_owner
     check("same person, Devanagari vs Latin",
           _same_owner("रामस्वरूप शर्मा", "Ramswaroop Sharma"), "transliteration match")

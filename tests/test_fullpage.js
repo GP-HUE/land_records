@@ -2,12 +2,14 @@
 // Node VM with a DOM stub, then drives the Land Map tab exactly like a user:
 // switch to map tab -> check cascade selects -> click through cascade -> check
 // sheet grid. Captures every console error (the "browser console" angle).
+const LR_ROOT = process.env.LR_ROOT || '/home/user/land_records/extracted';
+const LR_BASE = process.env.LR_BASE || 'http://127.0.0.1:8000';
 const fs = require('fs');
 const vm = require('vm');
 const { createServer } = require('http');
 
-const BASE = 'http://127.0.0.1:8000';
-const html = fs.readFileSync('/home/user/land_records/extracted/landrec/static/index.html', 'utf8');
+const BASE = LR_BASE;
+const html = fs.readFileSync(LR_ROOT + '/landrec/static/index.html', 'utf8');
 const js = fs.readFileSync('/tmp/main_script.js', 'utf8');
 
 // ---------- DOM stub ----------
@@ -278,6 +280,26 @@ async function main(){
   const listHtml = $('#mapList').innerHTML;
   check('real-map list rendered rows', (listHtml.match(/map-rec-row/g) || []).length > 0, listHtml.slice(0, 120));
 
+
+  // ---- SHOW MODE: selected-only (default) vs all records ----
+  check('show-mode select present in page', $('#mapShowMode') !== null);
+  vm.runInContext("mapShowMode = 'selected'", sandbox);
+  vm.runInContext("mapSelectedId = null", sandbox);
+  check("selected-only + no selection -> no rows", vm.runInContext('mapMarkerRows().length', sandbox) === 0);
+  const recId = vm.runInContext('mapRecords.length ? mapRecords[0].id : null', sandbox);
+  if(recId){
+    vm.runInContext("mapSelectedId = '" + recId + "'", sandbox);
+    const selRows = vm.runInContext('JSON.parse(JSON.stringify(mapMarkerRows().map(r=>r.id)))', sandbox);
+    check("selected-only + selection -> exactly that record", selRows.length === 1 && selRows[0] === recId, JSON.stringify(selRows));
+    vm.runInContext("mapSetShowMode('all')", sandbox);
+    check("show-mode 'all' -> every record", vm.runInContext('mapMarkerRows().length', sandbox) === vm.runInContext('mapRecords.length', sandbox));
+    check("show-mode persisted to localStorage", storage['lrMapShowMode'] === 'all', storage['lrMapShowMode']);
+    vm.runInContext("mapSetShowMode('selected')", sandbox);
+    check("show-mode select element updated", vm.runInContext("document.querySelector('#mapShowMode').value", sandbox) === 'selected');
+    vm.runInContext("mapSelectedId = null", sandbox);
+  }
+  vm.runInContext("mapSetShowMode('bogus')", sandbox);
+  check("invalid mode falls back to 'selected'", vm.runInContext('mapShowMode', sandbox) === 'selected');
 
   // ---- empty-DB UX: with zero records, the empty state must offer the
   // demo-load button for admins ----

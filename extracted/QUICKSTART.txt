@@ -3,6 +3,42 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.8 (21-Sep-2026) — 💾 ONE-CLICK DATA BACKUP & RESTORE + CI (every push is tested)
+### 1) 💾 Data Backup & Restore (Account tab, admin only)
+Solves the free-tier ephemeral-disk problem and makes the data portable:
+  * ⬇️ **Download Backup (ZIP)** — a CONSISTENT snapshot of the whole
+    portal: the SQLite database (online backup, safe while the app runs),
+    every uploaded scan, and a manifest (version + counts). One file =
+    the entire office: all records, workflow state, mutations,
+    encumbrances, the full audit trail and every scan.
+  * ⬆️ **Restore from backup** — upload a backup ZIP to replace the
+    current data. TWO confirmations are required, and BEFORE anything is
+    overwritten a SAFETY COPY of the current data is kept at
+    data/backup_before_restore_<timestamp>/ — a wrong restore is always
+    undoable. The server audits "backup_exported" / "backup_restored".
+  * Endpoints: GET /api/backup/export, POST /api/backup/import (admin
+    only; both refuse non-admins with 403). Import validates the ZIP and
+    the DB before touching anything (400 on garbage input).
+### 2) CI — every push is now tested automatically (GitHub Actions)
+New .github/workflows/ci.yml: on every push to main (and every PR) a fresh
+Ubuntu + Python 3.11 + Tesseract (11 Indic packs) instance boots the app
+and runs the offline-safe test battery:
+  regression 18 · map tab 74 · map sheet 12 · full-page simulation 18 ·
+  digitize-coords 16 · encumbrance + risk 37 · backup/restore 14 ·
+  reject flow 18 · boundary 31 · full system battery 56 (incl.
+  multilingual OCR e2e).  ~290+ checks on every commit — the repo shows a
+  green ✅ per push. (Network-dependent geocode test + slow AI-rescue
+  suite stay local.)
+### 3) All test files are now CI-portable
+Every test reads $LR_ROOT (app root) and $LR_BASE (server URL) with the
+original local values as fallbacks — so `python tests/...` still works
+locally AND GitHub Actions can run them against the repo checkout.
+### 4) Verification (all green on v3.9.8)
+NEW test_backup.py 14/14 (RBAC, ZIP integrity, round-trip with state
+revert, safety-copy preserves the pre-restore data, rejects non-ZIP and
+ZIP-without-DB) · map tab 79 · full-page 18 · encumbrance 37 · system 56 ·
+regression 18 · map sheet 12 · reject 18 · boundary 31 · digitize 16.
+
 ## WHAT'S NEW IN v3.9.7 (16-Sep-2026) — 🏦 ENCUMBRANCE (LOAN) CHECK + 🛡️ FRAUD & RISK ENGINE (answers the mentor's question: "how do we know the land has no loan and is not fraud?")
 ### 1) 🏦 Encumbrance / Loan Check — is there a loan on this land?
 NEW. Loans/mortgages are registered against the LAND (survey + village),

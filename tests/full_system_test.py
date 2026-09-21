@@ -13,7 +13,7 @@ import urllib.request
 import urllib.error
 import uuid
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("LR_BASE", "http://127.0.0.1:8000")
 PASS = FAIL = 0
 FAILURES = []
 
@@ -193,7 +193,7 @@ check("A7 lockout after 5 fails (correct pw rejected while locked)", S in (401, 
       "status=%s" % S)
 
 # ================= PHASE 2: UPLOAD & PROCESSING =================
-SAMP_DIR = "/home/user/land_records/extracted/samples"
+SAMP_DIR = os.path.join(os.environ.get("LR_ROOT", "/home/user/land_records/extracted"), "samples")
 
 def multipart_upload(path, filename, field="file"):
     boundary = "----lrtest" + uuid.uuid4().hex

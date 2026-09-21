@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """E2E battery: plot boundary (digitize/estimate/import) + coordinates."""
+import os
 import json
 import math
 import sys
@@ -7,7 +8,7 @@ import urllib.request
 import urllib.error
 import uuid
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("LR_BASE", "http://127.0.0.1:8000")
 PASS = FAIL = 0
 FAILURES = []
 

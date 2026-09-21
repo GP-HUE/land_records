@@ -2091,6 +2091,37 @@
           </div>
           <div id="selfTestResult" class="hidden" style="margin-top:12px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px 14px;font-size:13px"></div>
         </div>
+
+        <!-- Data Backup & Restore (admin only) -->
+        <div class="card hidden" id="backupCard" style="max-width:520px;margin-top:20px">
+          <div class="card-header">
+            <h3 class="card-title">💾 डेटा बैकअप एवं पुनर्स्थापना (Data Backup &amp; Restore)</h3>
+          </div>
+          <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px;line-height:1.6">
+            पूरा पोर्टल (सभी अभिलेख, वर्कफ़्लो, परिवर्तन/म्यूटेशन, ऋण-भार, ऑडिट ट्रेल और सारे अपलोड स्कैन)
+            एक ZIP फ़ाइल में। इस फ़ाइल से कोई भी मशीन/डिप्लॉयमेंट पर डेटा वापस लाया जा सकता है।<br>
+            <i>(The entire portal — every record, workflow state, mutations, encumbrances, the audit
+            trail and all uploaded scans — in one ZIP. Restore it on any machine/deployment.)</i>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a class="btn" href="javascript:void(0)" onclick="downloadBackup()"
+               style="flex:1;min-width:180px;background:#0f2b48;text-align:center;text-decoration:none">
+               ⬇️ बैकअप डाउनलोड करें (Download Backup ZIP)
+            </a>
+          </div>
+          <hr style="border:none;border-top:1px solid var(--gov-border);margin:14px 0">
+          <div style="font-size:12.5px;font-weight:700;color:var(--gov-navy);margin-bottom:6px">⬆️ बैकअप से डेटा वापस करें (Restore from backup)</div>
+          <div style="font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-bottom:8px">
+            ⚠️ वर्तमान सारा डेटा REPLACE हो जाएगा। पहले पुराना डेटा सुरक्षा-कॉपी के रूप में सर्वर पर रखा जाता है।
+            <i>(Current data will be REPLACED — a safety copy is kept first.)</i>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="file" id="backupFileInput" accept=".zip" class="hidden">
+            <button class="btn ghost" style="min-width:150px" onclick="document.getElementById('backupFileInput').click()">📁 बैकअप ZIP चुनें…</button>
+            <button class="btn danger" id="backupRestoreBtn" style="min-width:150px" onclick="restoreBackup()">⬆️ Restore करें</button>
+          </div>
+          <div id="backupResult" class="hidden" style="margin-top:10px;font-size:12.5px;line-height:1.6;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;color:#166534"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -5822,6 +5853,45 @@ function loadAccount(){
   }
   const bn = $('#sysCheckBanner');
   if(bn) bn.classList.toggle('hidden', me.role !== 'admin');
+  const bc = $('#backupCard');
+  if(bc) bc.classList.toggle('hidden', me.role !== 'admin');
+}
+
+function downloadBackup(){
+  window.location = authUrl('/api/backup/export');
+}
+
+async function restoreBackup(){
+  const inp = $('#backupFileInput');
+  const out = $('#backupResult');
+  if(!inp || !inp.files || !inp.files.length){
+    alert('First choose the backup ZIP file.');
+    return;
+  }
+  if(!confirm('Restore from backup?\n\nALL current data will be REPLACED by the backup.\n(A safety copy of the current data is kept on the server first.)')) return;
+  if(!confirm('Final confirmation — are you sure you want to replace the current data?')) return;
+  if(out){ out.classList.remove('hidden'); out.style.background = '#f8fafc'; out.style.color = '#334155';
+           out.style.borderColor = '#cbd5e1'; out.textContent = 'Restoring… (this replaces the current data)'; }
+  const fd = new FormData();
+  fd.append('file', inp.files[0]);
+  try{
+    const r = await fetch(authUrl('/api/backup/import'), { method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token }, body: fd });
+    let d = null;
+    try{ d = await r.json(); }catch(e){}
+    if(!r.ok) throw new Error((d && (d.detail || d.message)) || ('HTTP ' + r.status));
+    if(out){ out.style.background = '#f0fdf4'; out.style.color = '#166534'; out.style.borderColor = '#86efac';
+             out.innerHTML = '✅ <b>Restore complete.</b> ' + (d.documents||0) + ' documents, ' +
+               (d.uploads_restored||0) + ' uploads restored.<br><span style="font-size:11.5px">Safety copy of the previous data: ' +
+               escapeHtml(d.safety_copy || '') + '</span>'; }
+    // refresh the whole UI from the restored data
+    mapRecords = [];
+    await loadMapTab(true).catch(()=>{});
+    if(typeof loadDocuments === 'function') loadDocuments();
+  }catch(e){
+    if(out){ out.style.background = '#fef2f2'; out.style.color = '#991b1b'; out.style.borderColor = '#fecaca';
+             out.textContent = 'Restore failed: ' + e.message; }
+  }
 }
 
 function openSystemStatus(){

@@ -1,8 +1,10 @@
 // Verifies mapGeocodeAllVillages (background village locating) against the
 // live server: records with real villages get located, records without
 // village/district are skipped (no bogus "India" dot).
+const LR_ROOT = process.env.LR_ROOT || '/home/user/land_records/extracted';
+const LR_BASE = process.env.LR_BASE || 'http://127.0.0.1:8000';
 const fs = require('fs');
-const html = fs.readFileSync('/home/user/land_records/extracted/landrec/static/index.html', 'utf8');
+const html = fs.readFileSync(LR_ROOT + '/landrec/static/index.html', 'utf8');
 function extractFn(name){
   let i = html.indexOf('function ' + name + '(');
   if(i < 0) throw new Error('function ' + name + ' not found');
@@ -32,7 +34,7 @@ function mapSetVillage(key, lat, lon, level){
 }
 function mapVillageKey(r){ return (r.village||'') + '|' + (r.district||'') + '|' + (r.state||''); }
 async function api(path, opts){
-  const r = await fetch('http://127.0.0.1:8000' + path, {
+  const r = await fetch(LR_BASE + path, {
     method: opts.method || 'GET',
     headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + TOK },
     body: opts.body,
@@ -44,14 +46,14 @@ let TOK = '';
 eval(extractFn('mapGeocodeAllVillages'));
 
 async function main(){
-  const login = await fetch('http://127.0.0.1:8000/api/auth/login', {
+  const login = await fetch(LR_BASE + '/api/auth/login', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({email:'admin@landrec.gov.in', password:'Admin@123'})
   }).then(r => r.json());
   TOK = login.token;
 
   // pick real records that actually have village + district
-  const d = await fetch('http://127.0.0.1:8000/api/map/records', { headers: { 'Authorization':'Bearer ' + TOK } }).then(r => r.json());
+  const d = await fetch(LR_BASE + '/api/map/records', { headers: { 'Authorization':'Bearer ' + TOK } }).then(r => r.json());
   const withLoc = d.records.filter(r => r.village && r.district && r.lat==null).slice(0, 3);
   // a record with NO village/district (must be skipped)
   const noLoc = { id:'x1', village:'', district:'', state:'', lat:null, lon:null };

@@ -1,7 +1,8 @@
 """Final regression battery for v3.6 (workflow + analysis + audit chain)."""
+import os
 import sys, os, tempfile, shutil
-sys.path.insert(0, "/home/user/land_records/extracted")
-os.chdir("/home/user/land_records/extracted")
+sys.path.insert(0, os.environ.get("LR_ROOT", "/home/user/land_records/extracted"))
+os.chdir(os.environ.get("LR_ROOT", "/home/user/land_records/extracted"))
 import landrec.paths as paths
 tmp = tempfile.mkdtemp(prefix="lrfinal5_")
 paths.data_dir = lambda: tmp

@@ -2,9 +2,11 @@
 // index.html (extracted verbatim) against real /api/map/records data,
 // with a minimal DOM stub. Verifies the district/tehsil/village selects
 // populate and the sheet grid renders plots.
+const LR_ROOT = process.env.LR_ROOT || '/home/user/land_records/extracted';
+const LR_BASE = process.env.LR_BASE || 'http://127.0.0.1:8000';
 const fs = require('fs');
 
-const html = fs.readFileSync('/home/user/land_records/extracted/landrec/static/index.html', 'utf8');
+const html = fs.readFileSync(LR_ROOT + '/landrec/static/index.html', 'utf8');
 
 function extractFn(name){
   const i = html.indexOf('function ' + name + '(');
@@ -62,12 +64,12 @@ eval(
 
 // ---- real data from the live API ----
 async function main(){
-  const login = await fetch('http://127.0.0.1:8000/api/auth/login', {
+  const login = await fetch(LR_BASE + '/api/auth/login', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({email:'admin@landrec.gov.in', password:'Admin@123'})
   }).then(r => r.json());
   const tok = login.token;
-  const d = await fetch('http://127.0.0.1:8000/api/map/records', {
+  const d = await fetch(LR_BASE + '/api/map/records', {
     headers: {Authorization: 'Bearer ' + tok}
   }).then(r => r.json());
   mapRecords = d.records || [];

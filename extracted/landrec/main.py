@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.9.7"
+APP_VERSION = "3.9.8"
 
 
 def _warmup_ocr_worker():
@@ -1744,6 +1744,140 @@ def verify_page(doc_id: str):
 def audit_verify(user: dict = Depends(require_role("verifier"))):
     """Recompute the SHA-256 chain; any tampered entry breaks the chain."""
     return store.verify_audit_chain()
+
+
+# --------------------------------------------------------------------------
+# 💾 DATA BACKUP & RESTORE (ADMIN) — the whole portal in one ZIP
+# --------------------------------------------------------------------------
+@app.get("/api/backup/export")
+def backup_export(user: dict = Depends(require_role("admin"))):
+    """Download the complete dataset as a ZIP: a CONSISTENT snapshot of the
+    SQLite database (online backup, safe while the app runs) + every
+    uploaded scan + a manifest. This is the one-click data backup: save it,
+    and the entire portal (records, workflow state, mutations, encumbrances,
+    audit trail, uploads) can be restored anywhere from this file."""
+    import io
+    import sqlite3
+    import tempfile
+    import zipfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    tmp.close()
+    src = sqlite3.connect(store.DB_PATH)
+    dst = sqlite3.connect(tmp.name)
+    try:
+        with dst:
+            src.backup(dst)  # online backup: consistent snapshot while live
+    finally:
+        src.close()
+        dst.close()
+    with open(tmp.name, "rb") as fh:
+        db_bytes = fh.read()
+    os.remove(tmp.name)
+
+    n_docs = n_muts = n_enc = 0
+    con = sqlite3.connect(store.DB_PATH)
+    try:
+        n_docs = con.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        n_muts = con.execute("SELECT COUNT(*) FROM mutations").fetchone()[0]
+        n_enc = con.execute("SELECT COUNT(*) FROM encumbrances").fetchone()[0]
+    finally:
+        con.close()
+
+    up_count = 0
+    zbuf = io.BytesIO()
+    with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("landrec.db", db_bytes)
+        z.writestr("manifest.json", json.dumps({
+            "app": "Intelligent Land Record Digitization & Validation System",
+            "version": APP_VERSION,
+            "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "documents": n_docs, "mutations": n_muts, "encumbrances": n_enc,
+        }, indent=1))
+        if os.path.isdir(store.UPLOAD_DIR):
+            for f in sorted(os.listdir(store.UPLOAD_DIR)):
+                fp = os.path.join(store.UPLOAD_DIR, f)
+                if os.path.isfile(fp):
+                    z.write(fp, "uploads/" + f)
+                    up_count += 1
+    fname = "landrec_backup_%s.zip" % time.strftime("%Y%m%d_%H%M")
+    store.audit(None, user["id"], user["email"], "backup_exported",
+                "%d docs, %d mutations, %d encumbrances, %d uploads" % (n_docs, n_muts, n_enc, up_count))
+    return Response(zbuf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": "attachment; filename=%s" % fname})
+
+
+@app.post("/api/backup/import")
+async def backup_import(request: Request, user: dict = Depends(require_role("admin"))):
+    """Restore the portal from a backup ZIP (replaces the current data).
+    Before overwriting anything, a SAFETY COPY of the current data is kept
+    at data/backup_before_restore_<ts>/, so a wrong restore is always undoable."""
+    import io
+    import shutil
+    import sqlite3
+    import zipfile
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        up = form.get("file")
+        if up is None:
+            raise HTTPException(400, "Missing 'file' field (the backup ZIP)")
+        data = await up.read()
+    else:
+        data = await request.body()
+    if not data:
+        raise HTTPException(400, "Empty upload")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "Not a valid ZIP file")
+    names = zf.namelist()
+    if "landrec.db" not in names:
+        raise HTTPException(400, "Not a landrec backup: 'landrec.db' missing from the ZIP")
+    db_bytes = zf.read("landrec.db")
+    # Validate: the bytes must be a readable SQLite DB with our tables
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    tmp.write(db_bytes)
+    tmp.close()
+    try:
+        t3 = sqlite3.connect(tmp.name)
+        n_docs = t3.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+        t3.close()
+    except Exception:
+        os.remove(tmp.name)
+        raise HTTPException(400, "landrec.db in the backup is not a readable database")
+    os.remove(tmp.name)
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    safe_dir = os.path.join(os.path.dirname(store.DB_PATH),
+                            "backup_before_restore_%s" % ts)
+    os.makedirs(safe_dir, exist_ok=True)
+    shutil.copy2(store.DB_PATH, os.path.join(safe_dir, "landrec.db"))
+    if os.path.isdir(store.UPLOAD_DIR):
+        shutil.copytree(store.UPLOAD_DIR, os.path.join(safe_dir, "uploads"),
+                        dirs_exist_ok=True)
+
+    # apply the backup
+    with open(store.DB_PATH, "wb") as fh:
+        fh.write(db_bytes)
+    if os.path.isdir(store.UPLOAD_DIR):
+        for f in os.listdir(store.UPLOAD_DIR):
+            fp = os.path.join(store.UPLOAD_DIR, f)
+            if os.path.isfile(fp):
+                os.remove(fp)
+    n_up = 0
+    for n in names:
+        if n.startswith("uploads/") and not n.endswith("/"):
+            os.makedirs(store.UPLOAD_DIR, exist_ok=True)
+            target = os.path.join(store.UPLOAD_DIR, os.path.basename(n))
+            with zf.open(n) as src_f, open(target, "wb") as dst_f:
+                shutil.copyfileobj(src_f, dst_f)
+            n_up += 1
+    store.audit(None, user["id"], user["email"], "backup_restored",
+                "%d documents restored (safety copy: %s)" % (n_docs, os.path.basename(safe_dir)))
+    return {"ok": True, "documents": n_docs, "uploads_restored": n_up,
+            "safety_copy": safe_dir,
+            "note": "Data restored. The previous data was kept as a safety copy at: %s" % safe_dir}
 
 
 @app.delete("/api/documents/{doc_id}")

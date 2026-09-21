@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """E2E test for the new Reject action (v3.5.21) against the live server."""
+import os
 import json
 import sys
 import urllib.request
 import urllib.error
 import uuid
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("LR_BASE", "http://127.0.0.1:8000")
 PASS = FAIL = 0
 FAILURES = []
 

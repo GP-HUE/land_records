@@ -2,12 +2,14 @@
 // Node VM with a DOM stub, then drives the Land Map tab exactly like a user:
 // switch to map tab -> check cascade selects -> click through cascade -> check
 // sheet grid. Captures every console error (the "browser console" angle).
+const LR_ROOT = process.env.LR_ROOT || '/home/user/land_records/extracted';
+const LR_BASE = process.env.LR_BASE || 'http://127.0.0.1:8000';
 const fs = require('fs');
 const vm = require('vm');
 const { createServer } = require('http');
 
-const BASE = 'http://127.0.0.1:8000';
-const html = fs.readFileSync('/home/user/land_records/extracted/landrec/static/index.html', 'utf8');
+const BASE = LR_BASE;
+const html = fs.readFileSync(LR_ROOT + '/landrec/static/index.html', 'utf8');
 const js = fs.readFileSync('/tmp/main_script.js', 'utf8');
 
 // ---------- DOM stub ----------
