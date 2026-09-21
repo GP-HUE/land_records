@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.9.6"
+APP_VERSION = "3.9.7"
 
 
 def _warmup_ocr_worker():
@@ -612,6 +612,122 @@ def record_history(doc_id: str, user: dict = Depends(get_current_user)):
     return {"survey": g("survey_number"), "village": g("village"),
             "current_id": doc_id,
             "items": items, "including_current": True}
+
+
+# --------------------------------------------------------------------------
+# ENCUMBRANCE (loan) + FRAUD-RISK checks — answers "is this land free of
+# loans and free of fraud?" for the piece of land behind a record
+# (same survey + village key as the year-wise history).
+# --------------------------------------------------------------------------
+def _land_key_from_doc(doc):
+    f = json.loads(doc.get("extracted_json") or "{}")
+    g = lambda k: str((f.get(k) or {}).get("value", "") or "") if isinstance(f.get(k), dict) else ""
+    return g("survey_number"), g("village"), g("khasra_number")
+
+
+def _land_risk_payload(doc, user=None):
+    """Full risk answer for the land behind a document: encumbrances,
+    mutation history and the computed flags."""
+    survey, village, khasra = _land_key_from_doc(doc)
+    if not survey:
+        return {"survey": "", "village": village, "khasra": khasra,
+                "encumbrances": [], "mutations": [], "flags": [],
+                "active": 0, "verdict": "no_survey"}
+    encs = store.list_encumbrances(survey, village)
+    muts = [m for m in store.list_mutations(limit=300)
+            if _norm_s(m.get("survey_number")) == _norm_s(survey)
+            and (not village or _norm_s(m.get("village")) == _norm_s(village)
+                 or not m.get("village"))]
+    hist = store.record_history(survey, village)
+    rec_rows = []
+    for h in hist:
+        rec_rows.append({"year": h.get("year"), "owner": h.get("owner"),
+                         "area": h.get("area"), "khasra": h.get("khasra"),
+                         "doc_id": h.get("id"), "filename": h.get("filename"),
+                         "status": h.get("status"), "doc_type": h.get("doc_type")})
+    from landrec import risk
+    flags = risk.land_risk(rec_rows, encs, muts)
+    active = sum(1 for e in encs if e.get("status") == "active")
+    if active:
+        verdict = "encumbered"
+    elif any(f["severity"] == "critical" for f in flags):
+        verdict = "risk"
+    elif any(f["severity"] == "warning" for f in flags):
+        verdict = "review"
+    else:
+        verdict = "clear"
+    return {"survey": survey, "village": village, "khasra": khasra,
+            "encumbrances": encs, "mutations": muts, "flags": flags,
+            "active": active, "verdict": verdict}
+
+
+def _norm_s(v):
+    return re.sub(r"\s+", " ", str(v or "")).strip().lower()
+
+
+@app.get("/api/encumbrances")
+def list_encumbrances(survey: str = Query(""), village: str = Query(""),
+                      khasra: str = Query(""),
+                      user: dict = Depends(get_current_user)):
+    if not survey:
+        raise HTTPException(400, "survey number is required")
+    encs = store.list_encumbrances(survey, village, khasra)
+    return {"encumbrances": encs,
+            "active": sum(1 for e in encs if e["status"] == "active")}
+
+
+@app.post("/api/encumbrances")
+def create_encumbrance(payload: dict, user: dict = Depends(require_role("operator"))):
+    """Record a loan/mortgage against a piece of land (Data Operator+)."""
+    try:
+        e = store.create_encumbrance(payload, user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return e
+
+
+@app.post("/api/encumbrances/{eid}/settle")
+def settle_encumbrance(eid: str, payload: dict, user: dict = Depends(require_role("verifier"))):
+    """Record the loan release (bank NOC) — Verification Officer/Admin."""
+    try:
+        e = store.settle_encumbrance(eid, user,
+                                     settlement_date=payload.get("settlement_date", ""),
+                                     notes=payload.get("notes", ""))
+    except ValueError as ex:
+        raise HTTPException(409, str(ex))
+    if not e:
+        raise HTTPException(404, "Not found")
+    return e
+
+
+@app.get("/api/documents/{doc_id}/risk")
+def document_risk(doc_id: str, user: dict = Depends(get_current_user)):
+    """Encumbrance + fraud-risk report for the land behind this record:
+    active/settled loans, the owner chain, and rule-based risk flags with
+    evidence. Local computation only — no external calls."""
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(404, "Not found")
+    return _land_risk_payload(doc)
+
+
+@app.get("/api/documents/{doc_id}/encumbrance-pdf")
+def encumbrance_pdf(doc_id: str, request: Request,
+                    years: int = Query(13, ge=1, le=30),
+                    user: dict = Depends(get_current_user)):
+    """Encumbrance Certificate (EC) style report for the land: 'free of
+    encumbrances in the last N years' — or the list of encumbrances found.
+    Internal risk-check report; the legally conclusive EC is issued by the
+    Sub-Registrar (stated on the document)."""
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(404, "Not found")
+    data = cert_pdf.render_encumbrance_pdf(doc, _land_risk_payload(doc), years,
+                                           issued_by=user.get("email") or "")
+    fname = "encumbrance_report_%s.pdf" % doc_id
+    store.audit(doc_id, user["id"], user["email"], "encumbrance_report_downloaded", fname)
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": "attachment; filename=%s" % fname})
 
 
 @app.post("/api/documents/{doc_id}/verify")
@@ -1383,8 +1499,22 @@ def review_mutation(mid: str, payload: dict, user: dict = Depends(require_role("
                 linked = cand["id"]
         if not linked or not store.get_document(linked or ""):
             raise HTTPException(400, "Select the existing record to update (link) first")
+        # ENCBUMBRANCE GATE (non-blocking): if the land has a live loan the
+        # officer is approving a transfer of mortgaged land — allowed, but
+        # the decision (and the live loan) are permanently noted.
+        act = store.active_encumbrances(m["survey_number"], m.get("village") or "")
+        gate_note = ""
+        if act:
+            gate_note = (" | ⚠ APPROVED WITH ACTIVE ENCUMBRANCE: %s on this land "
+                         "(%s) — bank release must be verified."
+                         % ("; ".join("%s (ref. %s)" % (e.get("creditor"), e.get("reference_no") or "n/a")
+                                      for e in act),
+                            ", ".join(e.get("mortgage_date") or "?" for e in act)))
+            store.audit(linked, user["id"], user["email"], "mutation_approved_with_encumbrance",
+                        "%s — %d active encumbrance(s) on the land" % (m.get("app_no"), len(act)))
         try:
-            m = store.set_mutation_status(mid, "verified", user, notes, linked_doc_id=linked)
+            m = store.set_mutation_status(mid, "verified", user, (notes or "") + gate_note,
+                                          linked_doc_id=linked)
         except ValueError as e:
             raise HTTPException(400, str(e))
         return m

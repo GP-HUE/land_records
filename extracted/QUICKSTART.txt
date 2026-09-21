@@ -3,6 +3,54 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.7 (16-Sep-2026) — 🏦 ENCUMBRANCE (LOAN) CHECK + 🛡️ FRAUD & RISK ENGINE (answers the mentor's question: "how do we know the land has no loan and is not fraud?")
+### 1) 🏦 Encumbrance / Loan Check — is there a loan on this land?
+NEW. Loans/mortgages are registered against the LAND (survey + village),
+and every record's detail view now shows a live encumbrance panel:
+  * verdict banner: ✅ encumbrance-free / ⚠️ loans were registered but all
+    settled / 🔴 ACTIVE loan on this land
+  * full loan table (creditor, amount, mortgage date, ref no., status,
+    settlement date) with a "✓ Record Loan Release" action (verifier+)
+  * "➕ Record a Loan / Mortgage" form (operator+)
+  * ⬇ **EC Report (13 yrs, PDF+QR)** — an Encumbrance-Certificate-style
+    report: "free of encumbrances in the period" or the encumbrance list,
+    with a tamper-evident content hash in the QR (like the certified PDF)
+  * **SAFETY GATE**: approving a mutation (sale) while an ACTIVE loan is on
+    the land is allowed but permanently noted — the review note and the
+    audit trail record "APPROVED WITH ACTIVE ENCUMBRANCE"
+  * honest positioning on the report: internal risk-check from this
+    system's register; the legally conclusive EC comes from the
+    Sub-Registrar
+### 2) 🛡️ Fraud & Risk Check — is this land/record fraud?
+NEW. A local, rule-based engine over the land's full passbook (+ encumbrance
+register + mutations) runs on demand and auto-loads in the record detail:
+  * 🔴 ACTIVE_ENCUMBRANCE — live loan on the land
+  * 🔴 SALE_DURING_ENCUMBRANCE — a transfer happened while a loan was live
+    (voidable without bank consent)
+  * 🟠 OWNER_CONFLICT_YEAR — different owners recorded in the same year
+  * 🟠 OWNER_CHANGE_NO_MUTATION — owner rolled over with no registered
+    mutation bridging the change
+  * 🟠 AREA_JUMP — area changed >15% with no partition/merger on file
+  * 🔵 REJECTED_CONFLICT_COPY — documented dispute (rejected conflicting
+    record), shown for transparency
+  * 🔵 CHAIN_GAP — big gap in the passbook
+  Each flag has severity, a plain-language explanation and the evidence.
+  Verdict: 🔴 encumbered / 🔴 critical risk / 🟠 review advised / 🟢 clear.
+### 3) Pre-loaded demo scenario (seeded by the seeder — no manual work)
+  * Sundarpur 452/77: SBI ₹4.5L mortgage 2019, live DURING the 2021 sale
+    (engine flags 🔴 SALE_DURING_ENCUMBRANCE), released Aug 2022 (bank NoC)
+    + the 2019 owner-conflict copy (Mahesh Verma) rejected with notes
+  * Barkheda 312/45-2: PNB ₹2L mortgage ACTIVE — open either Barkheda
+    record (Hindi or English) to see the live "land has a loan" state
+  * Arera 452/77: messy history on purpose — the engine flags the
+    undocumented owner change + area jump (demo of the checks working)
+  * Sarangpur 118: a clean land → 🟢 CLEAR (the contrast case)
+### 4) Verification (all green on v3.9.7)
+NEW test_encumbrance.py 32/32 (seeded scenario flags, clean vs messy
+lands, CRUD + RBAC, double-settle guard, mutation approval gate + audit,
+EC PDFs) · system 56 · map tab 74 · full-page 18 · map sheet 12 ·
+regression 18 · geocode 5 · boundary 31 · reject 18 · digitize 16.
+
 ## WHAT'S NEW IN v3.9.6 (16-Sep-2026) — Map: "Show: Selected record / All records" toggle (no more stray dots)
 ### Problem
 The Real Map drew a marker for EVERY located record at all times — so with no

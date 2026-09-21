@@ -4571,6 +4571,144 @@ async function loadRecordHistory(id){
   box.innerHTML = html;
 }
 
+// ==========================================================================
+// 🏦 ENCUMBRANCE (LOAN) CHECK + 🛡️ FRAUD / RISK CHECK  (land-level)
+// ==========================================================================
+let _encLand = null;   // last land key (survey/village/khasra) for the enc form
+function _encChip(status){
+  const m = { active: ['ACTIVE', 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5'],
+              settled: ['SETTLED', 'background:#dcfce7;color:#166534;border:1px solid #86efac'],
+              foreclosed: ['FORECLOSED', 'background:#e2e8f0;color:#475569;border:1px solid #cbd5e1'] };
+  const it = m[status] || [status, 'background:#f1f5f9;color:#334155;border:1px solid #e2e8f0'];
+  return '<span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;' + it[1] + '">' + it[0] + '</span>';
+}
+function _canEditLand(){ return me && ['operator','verifier','admin'].includes(me.role); }
+function _canManageLand(){ return me && ['verifier','admin'].includes(me.role); }
+
+async function loadEncumbrances(docId){
+  const box = $('#encPanel'); if(!box) return;
+  box.innerHTML = '<span class="spinner" style="display:inline-block"></span> <span class="muted">Checking loans/encumbrances on this land…</span>';
+  let d;
+  try{ d = await api('/api/documents/' + docId + '/risk'); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  if(!d.survey){
+    box.innerHTML = '<span class="muted">No survey number on this record — land-level encumbrance check needs survey + village.</span>';
+    return;
+  }
+  _encLand = { docId, survey: d.survey, village: d.village, khasra: d.khasra };
+  const encs = d.encumbrances || [];
+  const active = d.active || 0;
+  let html = '';
+  if(active){
+    html += '<div style="background:#fef2f2;border:1px solid #fecaca;border-left:4px solid #dc2626;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#991b1b;font-weight:700">⚠️ ACTIVE ENCUMBRANCE — this land has ' + active + ' live loan(s). It is NOT encumbrance-free until the loan is released (record the bank settlement below).</div>';
+  } else if(encs.length){
+    html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #d97706;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#92400e;font-weight:600">⚠️ Loans were registered on this land, but all are now SETTLED.</div>';
+  } else {
+    html += '<div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#166534;font-weight:700">✅ Encumbrance-free — no loan / mortgage is registered on this land in the system.</div>';
+  }
+  if(encs.length){
+    html += '<table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:12px">' +
+      '<tr style="background:#f1f5f9;text-align:left"><th style="padding:5px 8px">Creditor (लोन देनवार)</th><th style="padding:5px 8px">Amount</th><th style="padding:5px 8px">Mortgaged</th><th style="padding:5px 8px">Ref. No.</th><th style="padding:5px 8px">Status</th><th style="padding:5px 8px">Settled On</th>' + (_canManageLand() ? '<th style="padding:5px 8px"></th>' : '') + '</tr>' +
+      encs.map(e =>
+        '<tr style="border-bottom:1px solid #e2e8f0">' +
+        '<td style="padding:5px 8px;font-weight:700">' + escapeHtml(e.creditor || '—') + '</td>' +
+        '<td style="padding:5px 8px">' + (e.amount != null ? '₹' + Number(e.amount).toLocaleString('en-IN') : '—') + '</td>' +
+        '<td style="padding:5px 8px">' + escapeHtml(e.mortgage_date || '—') + '</td>' +
+        '<td style="padding:5px 8px">' + escapeHtml(e.reference_no || '—') + '</td>' +
+        '<td style="padding:5px 8px">' + _encChip(e.status) + '</td>' +
+        '<td style="padding:5px 8px">' + escapeHtml(e.settlement_date || '') + '</td>' +
+        (_canManageLand() ? '<td style="padding:5px 8px;text-align:right">' + (e.status === 'active'
+          ? '<button class="btn ghost" style="padding:3px 8px;font-size:11px" onclick="settleEncumbrance(\'' + e.id + '\')">✓ Record Loan Release</button>' : '') + '</td>' : '') +
+        '</tr>').join('') + '</table>';
+  }
+  if(_canEditLand()){
+    html += '<div style="margin-top:10px"><button class="btn ghost" style="padding:5px 10px;font-size:12px" onclick="showEncForm()">➕ Record a Loan / Mortgage</button></div>';
+  }
+  box.innerHTML = html;
+}
+
+function showEncForm(){
+  const box = $('#encPanel'); if(!box || !_encLand) return;
+  box.insertAdjacentHTML('beforeend',
+    '<div id="encForm" style="margin-top:10px;background:#fff;border:1px dashed #93c5fd;border-radius:8px;padding:10px 12px;font-size:12px">' +
+    '<b style="color:#1e40af">New encumbrance on survey ' + escapeHtml(_encLand.survey) +
+    (_encLand.village ? ' / ' + escapeHtml(_encLand.village) : '') + '</b>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:8px">' +
+    '<input id="encCreditor" placeholder="Creditor / Bank *">' +
+    '<input id="encAmount" placeholder="Amount (₹)">' +
+    '<input id="encMdate" placeholder="Mortgage date (YYYY-MM-DD)">' +
+    '<input id="encRef" placeholder="Reference no.">' +
+    '<input id="encNotes" placeholder="Notes">' +
+    '</div>' +
+    '<div style="margin-top:8px;display:flex;gap:8px">' +
+    '<button class="btn" style="background:var(--gov-green);padding:5px 12px;font-size:12px" onclick="saveEncForm()">✓ Save Encumbrance</button>' +
+    '<button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="document.getElementById(\'encForm\').remove()">✕ Cancel</button>' +
+    '</div></div>');
+}
+async function saveEncForm(){
+  const g = id => { const el2 = document.getElementById(id); return el2 ? el2.value.trim() : ''; };
+  const creditor = g('encCreditor');
+  if(!creditor){ alert('Creditor is required.'); return; }
+  try{
+    await api('/api/encumbrances', { method: 'POST', body: JSON.stringify({
+      survey_number: _encLand.survey, village: _encLand.village || '', khasra_number: _encLand.khasra || '',
+      creditor, amount: g('encAmount'), mortgage_date: g('encMdate'),
+      reference_no: g('encRef'), notes: g('encNotes'), status: 'active'
+    })});
+    loadEncumbrances(_encLand.docId);
+  }catch(e){ alert(e.message); }
+}
+async function settleEncumbrance(eid){
+  const when = prompt('Settlement / release date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+  if(when === null) return;
+  const notes = prompt('Notes (e.g. bank NOC received):', '') || '';
+  try{
+    await api('/api/encumbrances/' + eid + '/settle', { method: 'POST',
+      body: JSON.stringify({ settlement_date: when, notes })});
+    loadEncumbrances(_encLand.docId);
+  }catch(e){ alert(e.message); }
+}
+function downloadEncumbrancePdf(docId){
+  window.location = authUrl('/api/documents/' + docId + '/encumbrance-pdf?years=13');
+}
+
+async function loadLandRisk(docId){
+  const box = $('#riskPanel'); if(!box) return;
+  box.innerHTML = '<span class="spinner" style="display:inline-block"></span> <span class="muted">Running land-level fraud &amp; risk checks over the full passbook…</span>';
+  let d;
+  try{ d = await api('/api/documents/' + docId + '/risk'); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  if(!d.survey){
+    box.innerHTML = '<span class="muted">No survey number on this record — land-level risk checks need survey + village.</span>';
+    return;
+  }
+  const flags = d.flags || [];
+  const sev = { critical: ['🔴 CRITICAL', '#dc2626', '#fef2f2', '#fecaca'],
+               warning:  ['🟠 WARNING',  '#d97706', '#fffbeb', '#fde68a'],
+               info:     ['🔵 INFO',     '#2563eb', '#eff6ff', '#bfdbfe'] };
+  const verdict = d.verdict || 'clear';
+  const vmap = {
+    encumbered: ['🔴 LAND IS ENCUMBERED — active loan on this land', '#dc2626', '#fef2f2', '#fecaca'],
+    risk:       ['🔴 CRITICAL RISK FLAGS FOUND', '#dc2626', '#fef2f2', '#fecaca'],
+    review:     ['🟠 RISK FLAGS — OFFICER REVIEW ADVISED', '#d97706', '#fffbeb', '#fde68a'],
+    clear:      ['🟢 CLEAR — no active encumbrance, no risk flags on this land', '#16a34a', '#f0fdf4', '#86efac'] };
+  const v = vmap[verdict] || vmap.clear;
+  let html = '<div style="border-radius:6px;padding:8px 12px;font-size:12.5px;font-weight:800;color:' + v[1] + ';background:' + v[2] + ';border:1px solid ' + v[3] + '">' + v[0] + '</div>';
+  if(!flags.length){
+    html += '<div style="font-size:12px;color:var(--muted);margin-top:8px">Owner chain, areas and transfers on this land are consistent with the record on file. (Checks run locally over the passbook + encumbrance register.)</div>';
+  } else {
+    html += '<div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">' + flags.map(f=>{
+      const s = sev[f.severity] || sev.info;
+      return '<div style="border:1px solid ' + s[3] + ';background:' + s[2] + ';border-radius:6px;padding:8px 12px">' +
+        '<div style="font-size:12.5px;font-weight:800;color:' + s[1] + '">' + s[0] + ' — ' + escapeHtml(f.title) + '</div>' +
+        '<div style="font-size:12px;color:#334155;margin-top:3px;line-height:1.55">' + escapeHtml(f.detail) + '</div>' +
+        (f.evidence && f.evidence.length ? '<div style="font-size:10.5px;color:#64748b;margin-top:4px">Evidence: ' + f.evidence.map(escapeHtml).join(' · ') + '</div>' : '') +
+        '</div>';
+    }).join('') + '</div>';
+  }
+  box.innerHTML = html;
+}
+
 async function mapTogglePinMode(){
   mapPinMode = $('#mapPinMode') ? $('#mapPinMode').checked : false;
   if(mapPinMode){
@@ -5283,6 +5421,33 @@ async function showDocDetail(id, pushHistory=true){
         <div id="historyPanel" style="margin-top:10px"></div>
       </div>
 
+      <!-- 🏦 Encumbrance (loan) check — "does this land have a loan on it?" -->
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#1e40af">🏦 Encumbrance / Loan Check — क्या इस ज़मीन पर कोई ऋण है? (भू-भार जाँच)</div>
+            <div style="font-size:11.5px;color:var(--muted)">Loans/mortgages registered on this land (same survey + village). An ACTIVE loan blocks the encumbrance certificate and flags any sale.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="loadEncumbrances('${d.id}')">🏦 Load Check</button>
+            <button class="btn ok" style="padding:5px 12px;font-size:12px;background:var(--gov-green)" onclick="downloadEncumbrancePdf('${d.id}')" title="Download the EC-style report (PDF + QR)">⬇ EC Report (13 yrs, PDF+QR)</button>
+          </div>
+        </div>
+        <div id="encPanel" style="margin-top:10px"></div>
+      </div>
+
+      <!-- 🛡️ Fraud / risk check — "is this land/record fraud?" -->
+      <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#5b21b6">🛡️ Fraud &amp; Risk Check — क्या यह ज़मीन/अभिलेख फ्रॉड है? (खतरे की जाँच)</div>
+            <div style="font-size:11.5px;color:var(--muted)">Rule-based checks over this land's full passbook: owner conflicts, transfers without mutations, area jumps, sales during live loans, record gaps.</div>
+          </div>
+          <button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="loadLandRisk('${d.id}')">🛡️ Run Check</button>
+        </div>
+        <div id="riskPanel" style="margin-top:10px"></div>
+      </div>
+
       <!-- Action Bar (Save & Verify) -->
       ${canEdit ? `
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:12px;margin-top:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -5382,6 +5547,11 @@ async function showDocDetail(id, pushHistory=true){
     if(pushHistory){
       recordHistoryState({tab: 'documents', docId: id, detailStep: 1});
     }
+
+    // Land-level checks (encumbrance + fraud risk) — auto-load for the demo,
+    // the 🏦 / 🛡️ buttons above re-load on demand.
+    loadEncumbrances(id);
+    loadLandRisk(id);
 
     // Smooth scroll into detail view
     box.scrollIntoView({behavior: 'smooth', block: 'nearest'});

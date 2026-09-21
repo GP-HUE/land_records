@@ -112,6 +112,13 @@ def main():
         ("show-mode: all option", 'value="all"'),
         ("show-mode helper", "function mapMarkerRows()"),
         ("show-mode persists", "lrMapShowMode"),
+        ("encumbrance check panel", 'id="encPanel"'),
+        ("fraud risk panel", 'id="riskPanel"'),
+        ("encumbrance load fn", "async function loadEncumbrances("),
+        ("risk load fn", "async function loadLandRisk("),
+        ("EC report download", "encumbrance-pdf?years=13"),
+        ("record loan form", "showEncForm()"),
+        ("settle encumbrance action", "settleEncumbrance("),
         ("empty-map hint (no selection)", 'id="mapSelectHint"'),
         ("old OSM-only layer gone", "mapTileLayer = L.tileLayer(src.url"),
     ]

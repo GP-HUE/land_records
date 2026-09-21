@@ -217,3 +217,177 @@ def render_certified_pdf(doc: dict, fields: dict, verify_url: str) -> bytes:
     docf.close()
     out.close()
     return data
+
+
+def render_encumbrance_pdf(doc: dict, risk: dict, years: int,
+                           issued_by: str = "") -> bytes:
+    """Encumbrance-Check Report (EC-style) for the land behind a record:
+    land identity, the checked period, the verdict (free of encumbrances /
+    list of encumbrances), any risk flags, and a QR carrying a content
+    hash so the report itself is tamper-evident."""
+    import hashlib
+    cert_font = _indic_font()
+    helv = pymupdf.Font("helv")
+    helv_b = pymupdf.Font("hebo")
+
+    fields = {}
+    try:
+        import json as _json
+        fields = _json.loads(doc.get("extracted_json") or "{}")
+    except Exception:  # noqa: BLE001
+        fields = {}
+    g = lambda k: str((fields.get(k) or {}).get("value", "") or "") if isinstance(fields.get(k), dict) else ""
+
+    now = time.time()
+    encs = risk.get("encumbrances") or []
+    period_from = time.strftime("%d %b %Y", time.localtime(now - years * 365 * 86400))
+    period_to = time.strftime("%d %b %Y", time.localtime(now))
+    in_window = []
+    for e in encs:
+        md = str(e.get("mortgage_date") or "")
+        if not md or md >= period_from[:6] or True:  # show ALL registered; window noted in text
+            in_window.append(e)
+    active = [e for e in encs if e.get("status") == "active"]
+    verdict = risk.get("verdict") or "clear"
+
+    docf = pymupdf.open()
+    page = docf.new_page(width=595, height=842)
+    W, M = 595, 52
+
+    def line(y, text, size=10, bold=False, center=False, color=(0.06, 0.17, 0.29)):
+        f = helv_b if bold else helv
+        x = M if not center else (W - f.text_length(text, fontsize=size)) / 2
+        tw = pymupdf.TextWriter(page.rect, color=color)
+        tw.append((x, y), text, font=f, fontsize=size)
+        tw.write_text(page)
+        return y
+
+    def rule(y, w=W - 2 * M, x0=M):
+        page.draw_line((x0, y), (x0 + w, y), color=(0.2, 0.3, 0.45), width=1.1)
+
+    # ---------------- header ----------------
+    y = 70
+    line(y, "INTELLIGENT LAND RECORD DIGITIZATION & VALIDATION SYSTEM", 13, True, True)
+    y += 22
+    line(y, "ENCUMBRANCE CHECK REPORT  -  %d-YEAR PERIOD  (EC-style)" % years, 12, True, True,
+         color=(0.25, 0.1, 0.05))
+    rule(y + 8)
+    y += 26
+
+    # ---------------- land identity ----------------
+    line(y, "LAND IDENTITY", 10, True, color=(0.30, 0.38, 0.48))
+    y += 16
+    land_rows = [
+        ("Survey Number", risk.get("survey") or "—"),
+        ("Khasra Number", risk.get("khasra") or "—"),
+        ("Village", risk.get("village") or "—"),
+        ("Tehsil / District", (" / ".join([x for x in (g("tehsil"), g("district")) if x]) or "—")),
+        ("Record Used", (doc.get("filename") or "—")[:70]),
+        ("Period Checked", "%s  to  %s  (%d years)" % (period_from, period_to, years)),
+    ]
+    for label, val in land_rows:
+        line(y, label, 9, True, color=(0.30, 0.38, 0.48))
+        line(y + 13, str(val)[:95], 10.5, True, color=(0.05, 0.05, 0.05))
+        y += 24
+
+    # ---------------- verdict ----------------
+    y += 6
+    if not in_window:
+        page.draw_rect(pymupdf.Rect(M, y, W - M, y + 40), color=(0.1, 0.5, 0.25), fill=(0.9, 0.97, 0.9))
+        line(y + 16, "✔  FREE OF ENCUMBRANCES", 13, True, color=(0.05, 0.35, 0.15))
+        line(y + 31, "No loan / mortgage / encumbrance is registered on this land in the system.",
+             9.5, False, color=(0.1, 0.3, 0.15))
+        y += 52
+    else:
+        line(y, "ENCUMBRANCES REGISTERED ON THIS LAND", 10, True)
+        y += 16
+        for e in in_window:
+            st = (e.get("status") or "active").upper()
+            col = (0.55, 0.1, 0.05) if st == "ACTIVE" else (0.3, 0.3, 0.35)
+            line(y, "%-28s ₹%-12s %s" % (str(e.get("creditor") or "")[:28],
+                                         "{:,.0f}".format(e["amount"]) if e.get("amount") else "—",
+                                         ("[" + st + "]")), 10, True, color=col)
+            y += 13
+            line(y, "     mortgaged %s   |   ref. %s   |   settled %s"
+                 % (e.get("mortgage_date") or "—", e.get("reference_no") or "—",
+                    e.get("settlement_date") or ("NOT SETTLED" if st == "ACTIVE" else "—")),
+                 9, False, color=col)
+            y += 18
+            if y > 470:
+                break
+        y += 4
+        if active:
+            line(y, "⚠  ACTIVE encumbrance(s) present — the land is NOT encumbrance-free "
+                    "until the loan is released (settlement recorded).", 9.5, True,
+                    color=(0.55, 0.1, 0.05))
+            y += 16
+        else:
+            line(y, "All registered encumbrances are settled. Encumbrance-free as far as "
+                    "this system's register shows.", 9.5, True, color=(0.05, 0.35, 0.15))
+        y += 18
+
+    # ---------------- risk flags ----------------
+    flags = [f for f in (risk.get("flags") or []) if f.get("code") not in
+             ("ACTIVE_ENCUMBRANCE", "SALE_DURING_ENCUMBRANCE")]
+    if flags:
+        y += 4
+        rule(y - 10)
+        line(y, "RISK FLAGS FROM LAND-LEVEL CHECKS", 10, True)
+        y += 16
+        for f in flags[:8]:
+            col = {"critical": (0.55, 0.1, 0.05), "warning": (0.5, 0.35, 0.0),
+                   "info": (0.2, 0.35, 0.5)}.get(f.get("severity"), (0.3, 0.3, 0.35))
+            line(y, "[%s]  %s" % (f.get("severity", "").upper(), f.get("title") or f.get("code")),
+                 9.5, True, color=col)
+            y += 13
+            det = (f.get("detail") or "")[:118]
+            line(y, "     " + det, 8.5, False, color=col)
+            y += 16
+            if y > 700:
+                break
+
+    # ---------------- disclaimer + signature ----------------
+    y = max(y + 10, 726)
+    line(y, "Internal risk-check report generated from encumbrances registered in this system. "
+            "The legally conclusive Encumbrance Certificate is issued by the Sub-Registrar.",
+         7.5, False, color=(0.45, 0.5, 0.58))
+    y += 11
+    line(y, "Issued by %s on %s" % (issued_by or "system", time.strftime("%d %b %Y %H:%M")),
+         7.5, False, color=(0.45, 0.5, 0.58))
+    sig_x = W - M - 200
+    line(y - 34, "Verification Officer", 8.5, True, color=(0.25, 0.32, 0.42))
+    page.draw_line((sig_x - 10, y - 18), (sig_x + 190, y - 18), color=(0.3, 0.35, 0.45), width=0.8)
+
+    # ---------------- QR (tamper-evident content hash) ----------------
+    payload = "|".join([
+        "EC", str(risk.get("survey") or ""), str(risk.get("khasra") or ""),
+        str(risk.get("village") or ""), str(years), verdict,
+        ";".join("%s:%s" % (e.get("creditor"), e.get("status")) for e in in_window),
+    ])
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+    qr = qrcode.QRCode(box_size=1, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data("LANDREC-EC " + digest)
+    qr.make(fit=True)
+    matrix = qr.get_matrix()
+    n = len(matrix)
+    qsize = 92
+    cell = qsize / n
+    q0x, q0y = W - M - qsize, y - 66
+    for r_i in range(n):
+        for c_i in range(n):
+            if matrix[r_i][c_i]:
+                page.draw_rect(pymupdf.Rect(q0x + c_i * cell, q0y + r_i * cell,
+                                            q0x + (c_i + 1) * cell, q0y + (r_i + 1) * cell),
+                               color=(0, 0, 0), fill=(0, 0, 0))
+    cap = "report hash: " + digest[:16]
+    capw = helv.text_length(cap, fontsize=6.5)
+    tw = pymupdf.TextWriter(page.rect, color=(0.25, 0.32, 0.42))
+    tw.append((q0x + (qsize - capw) / 2, q0y + qsize + 8), cap, font=helv, fontsize=6.5)
+    tw.write_text(page)
+
+    out = pymupdf.open()
+    out.insert_pdf(docf)
+    data = out.tobytes(garbage=3, deflate=True)
+    docf.close()
+    out.close()
+    return data

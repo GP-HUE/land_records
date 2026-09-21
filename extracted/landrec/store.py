@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -149,6 +150,25 @@ def init_db():
         username TEXT,
         status TEXT,
         note TEXT
+    );
+    CREATE TABLE IF NOT EXISTS encumbrances (
+        id TEXT PRIMARY KEY,
+        survey_number TEXT NOT NULL,
+        khasra_number TEXT,
+        village TEXT,
+        tehsil TEXT,
+        district TEXT,
+        creditor TEXT NOT NULL,
+        amount REAL,
+        mortgage_date TEXT,
+        reference_no TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        settlement_date TEXT,
+        notes TEXT,
+        created_by TEXT,
+        created_name TEXT,
+        created_at REAL,
+        updated_at REAL
     );
     CREATE TABLE IF NOT EXISTS ai_proposals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -773,6 +793,114 @@ def mutation_counts():
     rows = c.execute("SELECT status, COUNT(*) n FROM mutations GROUP BY status").fetchall()
     c.close()
     return {r["status"]: r["n"] for r in rows}
+
+
+# ---------- Encumbrances (loans / mortgages) ----------
+ENCUMBRANCE_STATUSES = ("active", "settled", "foreclosed")
+
+
+def _norm_text(v):
+    return re.sub(r"\s+", " ", str(v or "").strip()).lower()
+
+
+def create_encumbrance(data, user):
+    """Record a loan/mortgage against a piece of land (keyed by survey +
+    village, khasra optional). Returns the new row."""
+    eid = uuid.uuid4().hex[:12]
+    ts = time.time()
+    status = (data.get("status") or "active").strip()
+    if status not in ENCUMBRANCE_STATUSES:
+        raise ValueError("Invalid encumbrance status (use active/settled/foreclosed)")
+    c = _conn()
+    c.execute("""INSERT INTO encumbrances
+        (id, survey_number, khasra_number, village, tehsil, district,
+         creditor, amount, mortgage_date, reference_no, status,
+         settlement_date, notes, created_by, created_name, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (eid,
+               str(data.get("survey_number") or "").strip(),
+               str(data.get("khasra_number") or "").strip(),
+               str(data.get("village") or "").strip(),
+               str(data.get("tehsil") or "").strip(),
+               str(data.get("district") or "").strip(),
+               str(data.get("creditor") or "").strip(),
+               _to_float(data.get("amount")),
+               str(data.get("mortgage_date") or "").strip(),
+               str(data.get("reference_no") or "").strip(),
+               status,
+               str(data.get("settlement_date") or "").strip() or None,
+               str(data.get("notes") or "").strip(),
+               user["id"], user.get("email") or user.get("full_name") or "",
+               ts, ts))
+    c.commit()
+    c.close()
+    audit(None, user["id"], user.get("email") or "", "encumbrance_created",
+          "%s on survey %s %s (%s)" % (data.get("creditor"), data.get("survey_number"),
+                                       data.get("khasra_number"), data.get("village")))
+    return get_encumbrance(eid)
+
+
+def _to_float(v):
+    try:
+        if v in (None, ""):
+            return None
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def get_encumbrance(eid):
+    c = _conn()
+    r = c.execute("SELECT * FROM encumbrances WHERE id=?", (eid,)).fetchone()
+    c.close()
+    return dict(r) if r else None
+
+
+def list_encumbrances(survey, village="", khasra=""):
+    """All encumbrances on a piece of land (same survey + village; khasra
+    applied when given), newest first."""
+    c = _conn()
+    q = "SELECT * FROM encumbrances WHERE survey_number=?"
+    args = [str(survey or "").strip()]
+    if village:
+        # a loan registered without a village (survey-level) applies to the
+        # whole survey number — matches any village on that survey
+        q += " AND (village=? OR village IS NULL OR village='')"
+        args.append(str(village).strip())
+    if khasra:
+        q += " AND (khasra_number=? OR khasra_number IS NULL OR khasra_number='')"
+        args.append(str(khasra).strip())
+    q += " ORDER BY COALESCE(mortgage_date,'') DESC, created_at DESC"
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def settle_encumbrance(eid, user, settlement_date="", notes=""):
+    """Mark a loan settled/foreclosed (the release the officer records after
+    the bank NOC). Returns the updated row."""
+    e = get_encumbrance(eid)
+    if not e:
+        return None
+    if e["status"] != "active":
+        raise ValueError("Only an ACTIVE encumbrance can be settled")
+    c = _conn()
+    c.execute("""UPDATE encumbrances SET status='settled', settlement_date=?,
+                 notes=?, updated_at=? WHERE id=?""",
+              (str(settlement_date or "").strip() or None,
+               (e["notes"] or "") + ((" | " if e["notes"] else "") + str(notes or "").strip()),
+               time.time(), eid))
+    c.commit()
+    c.close()
+    audit(None, user["id"], user.get("email") or "", "encumbrance_settled",
+          "%s on survey %s %s" % (e["creditor"], e["survey_number"], e["khasra_number"]))
+    return get_encumbrance(eid)
+
+
+def active_encumbrances(survey, village=""):
+    """Active (unsettled) encumbrances on a piece of land — the ones that
+    block an Encumbrance Certificate and flag a sale."""
+    return [e for e in list_encumbrances(survey, village) if e["status"] == "active"]
 
 
 # ---------- Year-wise history / SLA / reports ----------

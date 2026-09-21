@@ -445,6 +445,30 @@ DEMO_CORRECTIONS = [
     ("area", "4.8 acre", "4.8 acres"),
 ]
 
+# Encumbrances (loans) registered against pieces of land. These power the
+# \U0001f3e6 Encumbrance Check + the fraud engine's loan rules:
+#  * Sundarpur 452/77: SBI mortgage taken 2019, STILL LIVE during the 2021
+#    sale (the engine flags "sale during encumbrance" - CRITICAL), released
+#    in Aug 2022 after full repayment (bank NOC).
+#  * Barkheda 312/45-2: PNB mortgage, ACTIVE - a live "land has a loan"
+#    warning the officer sees in the record detail + mutation gate.
+#    Registered at SURVEY level (no village) so it matches the land whether
+#    the record spells the village in Latin (Barkheda) or Devanagari (बरखेड़ा).
+DEMO_ENCUMBRANCES = [
+    {"survey_number": "452", "khasra_number": "77", "village": "Sundarpur",
+     "district": "Bhopal", "creditor": "State Bank of India", "amount": 450000,
+     "mortgage_date": "2019-03-14", "reference_no": "SBI/2019/1123",
+     "status": "settled", "settlement_date": "2022-08-30",
+     "notes": "Crop loan against the land. Fully repaid; bank NoC received. "
+              "Transfer to Kamla Devi Singh (deed SD/2021/118) completed after release."},
+    {"survey_number": "312", "khasra_number": "45/2", "village": "",
+     "district": "Bhopal", "creditor": "Punjab National Bank", "amount": 200000,
+     "mortgage_date": "2020-11-02", "reference_no": "PNB/2020/771",
+     "status": "active", "settlement_date": None,
+     "notes": "Active term loan. Any sale of this land requires the bank's "
+              "consent / release - verify before approving transfers."},
+]
+
 
 def _doc_count():
     c = store._conn()
@@ -570,13 +594,20 @@ def seed_demo_data(force=False):
                                       m.get("review_notes") or "",
                                       linked_doc_id=m.get("linked_doc_id"))
 
+    # ---- encumbrances (loans) ----
+    n_enc = 0
+    for e in DEMO_ENCUMBRANCES:
+        store.create_encumbrance(e, operator)
+        n_enc += 1
+
     total = _doc_count()
-    print("[seed] done - %d demo documents + %d mutation applications." % (total, n_mut))
+    print("[seed] done - %d demo documents + %d mutation applications + %d encumbrances."
+          % (total, n_mut, n_enc))
     return {"seeded": True, "documents": total,
-            "message": "%d demo records + %d mutation applications created. Demo logins: "
-                       "demo.admin@demo.local / Demo@Admin1 - demo.operator@demo.local / "
-                       "Demo@Operator1 - demo.verifier@demo.local / Demo@Verifier1"
-                       % (total, n_mut)}
+            "message": "%d demo records + %d mutation applications + %d encumbrances created. "
+                       "Demo logins: demo.admin@demo.local / Demo@Admin1 - "
+                       "demo.operator@demo.local / Demo@Operator1 - demo.verifier@demo.local / "
+                       "Demo@Verifier1" % (total, n_mut, n_enc)}
 
 
 def seed_if_empty():
