@@ -71,16 +71,24 @@ def main():
     s, d = req("POST", "/api/auth/login", data={"email": "bnd_operator_%s@t.in" % tag, "password": "Pass@1234"})
     OT = d["token"]
 
-    # find a record with a readable area value
+    # find a record with a READABLE (numeric) area value — OCR of bad scans
+    # can produce garbage areas like "cur woot"; those must be skipped or
+    # the estimate step 400s on a test pick, not on the feature itself.
     s, d = req("GET", "/api/documents", VT)
     docs = d.get("documents", [])
     target = None
     for x in docs:
-        f = x.get("fields") or {}
-        if (f.get("area") or {}).get("value"):
+        v = str((x.get("fields") or {}).get("area", {}).get("value", "") or "")
+        if any(ch.isdigit() for ch in v):
             target = x
             break
-    check("found a record with an area value", target is not None, len(docs))
+    if target is None:
+        for x in docs:  # fallback: any non-empty area
+            v = str((x.get("fields") or {}).get("area", {}).get("value", "") or "")
+            if v:
+                target = x
+                break
+    check("found a record with a readable area value", target is not None, len(docs))
     if not target:
         print("\nSKIP: no documents in DB"); sys.exit(1)
     doc_id = target["id"]

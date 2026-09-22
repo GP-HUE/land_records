@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.9.8"
+APP_VERSION = "3.9.9"
 
 
 def _warmup_ocr_worker():
@@ -646,10 +646,14 @@ def _land_risk_payload(doc, user=None):
                          "doc_id": h.get("id"), "filename": h.get("filename"),
                          "status": h.get("status"), "doc_type": h.get("doc_type")})
     from landrec import risk
-    flags = risk.land_risk(rec_rows, encs, muts)
+    cases = store.list_court_cases(survey, village)
+    flags = risk.land_risk(rec_rows, encs, muts, cases)
     active = sum(1 for e in encs if e.get("status") == "active")
+    active_cases = sum(1 for c in cases if c.get("status") == "active")
     if active:
         verdict = "encumbered"
+    elif active_cases:
+        verdict = "litigation"
     elif any(f["severity"] == "critical" for f in flags):
         verdict = "risk"
     elif any(f["severity"] == "warning" for f in flags):
@@ -657,8 +661,9 @@ def _land_risk_payload(doc, user=None):
     else:
         verdict = "clear"
     return {"survey": survey, "village": village, "khasra": khasra,
-            "encumbrances": encs, "mutations": muts, "flags": flags,
-            "active": active, "verdict": verdict}
+            "encumbrances": encs, "mutations": muts, "court_cases": cases,
+            "flags": flags, "active": active, "active_cases": active_cases,
+            "verdict": verdict}
 
 
 def _norm_s(v):
@@ -698,6 +703,46 @@ def settle_encumbrance(eid: str, payload: dict, user: dict = Depends(require_rol
     if not e:
         raise HTTPException(404, "Not found")
     return e
+
+
+# --------------------------------------------------------------------------
+# ⚖️ COURT CASES / LITIGATION on a piece of land
+# --------------------------------------------------------------------------
+@app.get("/api/court-cases")
+def list_court_cases(survey: str = Query(""), village: str = Query(""),
+                     user: dict = Depends(get_current_user)):
+    """All court cases registered against a piece of land (survey + village)."""
+    if not survey:
+        raise HTTPException(400, "survey number is required")
+    cases = store.list_court_cases(survey, village)
+    return {"court_cases": cases,
+            "active": sum(1 for c in cases if c["status"] == "active")}
+
+
+@app.post("/api/court-cases")
+def create_court_case(payload: dict, user: dict = Depends(require_role("operator"))):
+    """Register a court case / litigation against a piece of land."""
+    try:
+        c = store.create_court_case(payload, user)
+    except ValueError as ex:
+        raise HTTPException(400, str(ex))
+    return c
+
+
+@app.post("/api/court-cases/{cid}/close")
+def close_court_case(cid: str, payload: dict, user: dict = Depends(require_role("verifier"))):
+    """Record the outcome of a case (decided / withdrawn / settled) with the
+    decision summary — Verification Officer/Admin."""
+    try:
+        c = store.close_court_case(cid, user,
+                                   status=payload.get("status", "decided"),
+                                   closed_date=payload.get("closed_date", ""),
+                                   decision_summary=payload.get("decision_summary", ""))
+    except ValueError as ex:
+        raise HTTPException(409, str(ex))
+    if not c:
+        raise HTTPException(404, "Not found")
+    return c
 
 
 @app.get("/api/documents/{doc_id}/risk")
@@ -1512,6 +1557,15 @@ def review_mutation(mid: str, payload: dict, user: dict = Depends(require_role("
                             ", ".join(e.get("mortgage_date") or "?" for e in act)))
             store.audit(linked, user["id"], user["email"], "mutation_approved_with_encumbrance",
                         "%s — %d active encumbrance(s) on the land" % (m.get("app_no"), len(act)))
+        acs = store.active_court_cases(m["survey_number"], m.get("village") or "")
+        if acs:
+            gate_note += (" | \u26a0 APPROVED WITH ACTIVE LITIGATION: %s on this land "
+                          "(filed %s) \u2014 the court outcome must be verified."
+                          % ("; ".join("%s (%s)" % (c.get("case_number") or "case",
+                                                   c.get("court_name") or "court") for c in acs),
+                             ", ".join(c.get("filed_date") or "?" for c in acs)))
+            store.audit(linked, user["id"], user["email"], "mutation_approved_with_litigation",
+                        "%s \u2014 %d active court case(s) on the land" % (m.get("app_no"), len(acs)))
         try:
             m = store.set_mutation_status(mid, "verified", user, (notes or "") + gate_note,
                                           linked_doc_id=linked)

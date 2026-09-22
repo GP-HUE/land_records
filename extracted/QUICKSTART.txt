@@ -3,6 +3,53 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.9 (22-Sep-2026) — ⚖️ COURT CASE / LITIGATION TRACKING on the land (answers "is there a pending case on this land?")
+### What
+Court cases / litigation are now tracked **per piece of land** (same
+survey + village key as loans and history), shown in a new **⚖️ Court Case /
+Litigation Check** panel in every record's detail view — alongside the
+encumbrance and fraud-risk panels. A case row carries: case number, type
+(civil/criminal/revenue/possession/title), court, filed date, status
+(active / decided / withdrawn / settled), parties, relief sought, decision
+summary.
+### How it works
+  * verdict banner: 🔴 ACTIVE LITIGATION (pending case — must be cleared or
+    disclosed before a transfer) / ⚠️ prior litigation, all closed /
+    ✅ no court cases on record
+  * ➕ Record a Court Case (Data Operator+) and ✓ Record Outcome
+    (Verification Officer+ — decided/withdrawn/settled + decision summary);
+    only an ACTIVE case can be closed (double-close refused)
+  * the 🛡️ Fraud & Risk engine gained 3 new rules:
+      🔴 ACTIVE_LITIGATION          a case on the land is still pending
+      🔴 TRANSFER_DURING_LITIGATION a deed signed while a case was pending
+                                     (a transfer during pending title/
+                                     possession litigation is voidable)
+      🔵 CLOSED_LITIGATION_ON_RECORD prior (now-closed) cases, for transparency
+    overall verdict order: encumbered → litigation → risk → review → clear
+  * SAFETY GATE (like the loan gate): approving a mutation while an ACTIVE
+    case exists stamps "⚠ APPROVED WITH ACTIVE LITIGATION: <case> (filed
+    <date>)" into the approval note + audit trail
+  * the ⬇ report PDF now includes a "COURT CASES / LITIGATION ON THIS LAND"
+    section, and the QR content-hash covers the case list too
+### Pre-loaded demo scenario (seeded by the seeder)
+  * Sundarpur 452/77: after Mahesh Verma's conflicting 2019 copy was
+    REJECTED, his heirs filed a CIVIL TITLE suit (CS/2020/114, District
+    Court Bhopal, filed 2020-05-10) that is STILL ACTIVE — so the 2021 sale
+    happened during pending litigation → the engine shows 🔴
+    ACTIVE_LITIGATION + 🔴 TRANSFER_DURING_LITIGATION (plus the existing 🔴
+    sale-during-loan) → verdict: litigation
+  * Barkheda 312/45-2: a revenue (khatauni-entry) dispute filed 2019,
+    DECIDED 2021 in favour of the record holder → the "prior litigation,
+    now closed" transparency state (verdict stays encumbered — the active
+    PNB loan outranks it)
+  * Sarangpur 118: no cases → ✅ clean
+### Verification (all green on v3.9.9)
+NEW test_court_cases.py 22/22 (seeded scenario flags + verdicts, CRUD +
+RBAC, invalid/double close guards, mutation approval gate, report PDF) ·
+map tab 92 · system 56 · encumbrance 37 · boundary 31 (test hardened to
+skip OCR-garbage areas) · backup 14 · reject 18 · regression 18 ·
+full-page 18 · digitize 16 · map sheet 12.  334 checks total.
+
 ## WHAT'S NEW IN v3.9.8 (21-Sep-2026) — 💾 ONE-CLICK DATA BACKUP & RESTORE + CI (every push is tested)
 ### 1) 💾 Data Backup & Restore (Account tab, admin only)
 Solves the free-tier ephemeral-disk problem and makes the data portable:

@@ -4720,6 +4720,7 @@ async function loadLandRisk(docId){
   const verdict = d.verdict || 'clear';
   const vmap = {
     encumbered: ['🔴 LAND IS ENCUMBERED — active loan on this land', '#dc2626', '#fef2f2', '#fecaca'],
+    litigation: ['⚖️ ACTIVE LITIGATION — pending court case(s) on this land', '#b91c1c', '#fef2f2', '#fecaca'],
     risk:       ['🔴 CRITICAL RISK FLAGS FOUND', '#dc2626', '#fef2f2', '#fecaca'],
     review:     ['🟠 RISK FLAGS — OFFICER REVIEW ADVISED', '#d97706', '#fffbeb', '#fde68a'],
     clear:      ['🟢 CLEAR — no active encumbrance, no risk flags on this land', '#16a34a', '#f0fdf4', '#86efac'] };
@@ -5479,6 +5480,18 @@ async function showDocDetail(id, pushHistory=true){
         <div id="riskPanel" style="margin-top:10px"></div>
       </div>
 
+      <!-- ⚖️ Court case / litigation check — "is there a pending case on this land?" -->
+      <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#b91c1c">⚖️ Court Case / Litigation Check — क्या इस ज़मीन पर कोई मुकदमा चल रहा है? (अदालत जाँच)</div>
+            <div style="font-size:11.5px;color:var(--muted)">Cases registered on this land (same survey + village). Pending litigation — especially any stay order — must be cleared or disclosed before a transfer.</div>
+          </div>
+          <button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="loadCourtCases('${d.id}')">⚖️ Load Check</button>
+        </div>
+        <div id="casePanel" style="margin-top:10px"></div>
+      </div>
+
       <!-- Action Bar (Save & Verify) -->
       ${canEdit ? `
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:12px;margin-top:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -5583,6 +5596,7 @@ async function showDocDetail(id, pushHistory=true){
     // the 🏦 / 🛡️ buttons above re-load on demand.
     loadEncumbrances(id);
     loadLandRisk(id);
+    loadCourtCases(id);
 
     // Smooth scroll into detail view
     box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -5892,6 +5906,114 @@ async function restoreBackup(){
     if(out){ out.style.background = '#fef2f2'; out.style.color = '#991b1b'; out.style.borderColor = '#fecaca';
              out.textContent = 'Restore failed: ' + e.message; }
   }
+}
+
+// ==========================================================================
+// ⚖️ COURT CASE / LITIGATION CHECK (land-level, like encumbrances)
+// ==========================================================================
+let _caseLand = null;
+function _caseChip(status){
+  const m = { active: ['ACTIVE', 'background:#fee2e2;color:#991b1b;border:1px solid #fca5a5'],
+              decided: ['DECIDED', 'background:#dcfce7;color:#166534;border:1px solid #86efac'],
+              withdrawn: ['WITHDRAWN', 'background:#e2e8f0;color:#475569;border:1px solid #cbd5e1'],
+              settled: ['SETTLED', 'background:#dbeafe;color:#1e40af;border:1px solid #93c5fd'] };
+  const it = m[status] || [status, 'background:#f1f5f9;color:#334155;border:1px solid #e2e8f0'];
+  return '<span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;' + it[1] + '">' + it[0] + '</span>';
+}
+async function loadCourtCases(docId){
+  const box = $('#casePanel'); if(!box) return;
+  box.innerHTML = '<span class="spinner" style="display:inline-block"></span> <span class="muted">Checking court cases on this land…</span>';
+  let d;
+  try{ d = await api('/api/documents/' + docId + '/risk'); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  if(!d.survey){
+    box.innerHTML = '<span class="muted">No survey number on this record — land-level case check needs survey + village.</span>';
+    return;
+  }
+  _caseLand = { docId, survey: d.survey, village: d.village, khasra: d.khasra };
+  const cases = d.court_cases || [];
+  const active = d.active_cases || 0;
+  let html = '';
+  if(active){
+    html += '<div style="background:#fee2e2;border:1px solid #fca5a5;border-left:4px solid #dc2626;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#991b1b;font-weight:700">⚖️ ACTIVE LITIGATION — ' + active + ' pending court case(s) on this land. Must be cleared or explicitly disclosed before any transfer is approved.</div>';
+  } else if(cases.length){
+    html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-left:4px solid #d97706;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#92400e;font-weight:600">⚖️ Prior litigation on this land — all case(s) now closed (shown for transparency).</div>';
+  } else {
+    html += '<div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#166534;font-weight:700">✅ No court cases registered on this land.</div>';
+  }
+  if(cases.length){
+    html += '<table style="width:100%;border-collapse:collapse;margin-top:10px;font-size:12px">' +
+      '<tr style="background:#f1f5f9;text-align:left"><th style="padding:5px 8px">Case No.</th><th style="padding:5px 8px">Type</th><th style="padding:5px 8px">Court</th><th style="padding:5px 8px">Filed</th><th style="padding:5px 8px">Status</th><th style="padding:5px 8px">Detail</th>' + (_canManageLand() ? '<th style="padding:5px 8px"></th>' : '') + '</tr>' +
+      cases.map(c => {
+        const detail = (c.status === 'active')
+          ? (c.relief_sought || c.parties || 'pending')
+          : (c.decision_summary || c.parties || 'outcome on file');
+        return '<tr style="border-bottom:1px solid #e2e8f0">' +
+          '<td style="padding:5px 8px;font-weight:700">' + escapeHtml(c.case_number || '—') + '</td>' +
+          '<td style="padding:5px 8px">' + escapeHtml(c.case_type || '') + '</td>' +
+          '<td style="padding:5px 8px">' + escapeHtml(c.court_name || '') + '</td>' +
+          '<td style="padding:5px 8px">' + escapeHtml(c.filed_date || '—') + '</td>' +
+          '<td style="padding:5px 8px">' + _caseChip(c.status) + (c.closed_date ? '<br><span style="font-size:10.5px;color:#64748b">closed ' + escapeHtml(c.closed_date) + '</span>' : '') + '</td>' +
+          '<td style="padding:5px 8px;font-size:11.5px;line-height:1.5">' + escapeHtml(String(detail).slice(0, 140)) + '</td>' +
+          (_canManageLand() ? '<td style="padding:5px 8px;text-align:right;white-space:nowrap">' + (c.status === 'active'
+            ? '<button class="btn ghost" style="padding:3px 8px;font-size:11px" onclick="closeCase(\'' + c.id + '\')">✓ Record Outcome</button>' : '') + '</td>' : '') +
+          '</tr>';
+      }).join('') + '</table>';
+  }
+  if(_canEditLand()){
+    html += '<div style="margin-top:10px"><button class="btn ghost" style="padding:5px 10px;font-size:12px" onclick="showCaseForm()">➕ Record a Court Case</button></div>';
+  }
+  box.innerHTML = html;
+}
+function showCaseForm(){
+  const box = $('#casePanel'); if(!box || !_caseLand) return;
+  box.insertAdjacentHTML('beforeend',
+    '<div id="caseForm" style="margin-top:10px;background:#fff;border:1px dashed #fca5a5;border-radius:8px;padding:10px 12px;font-size:12px">' +
+    '<b style="color:#b91c1c">New court case on survey ' + escapeHtml(_caseLand.survey) +
+    (_caseLand.village ? ' / ' + escapeHtml(_caseLand.village) : '') + '</b>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:8px">' +
+    '<input id="caseNumber" placeholder="Case no. (e.g. CS/2024/11) *">' +
+    '<select id="caseType"><option value="">Type…</option><option>civil</option><option>criminal</option><option>revenue</option><option>possession</option><option>title</option><option>other</option></select>' +
+    '<input id="caseCourt" placeholder="Court name">' +
+    '<input id="caseFiled" placeholder="Filed date (YYYY-MM-DD)">' +
+    '<input id="caseParties" placeholder="Parties (against whom)">' +
+    '<input id="caseRelief" placeholder="Relief sought (brief)">' +
+    '<input id="caseNotes" placeholder="Notes">' +
+    '</div>' +
+    '<div style="margin-top:8px;display:flex;gap:8px">' +
+    '<button class="btn" style="background:#b91c1c;color:#fff;padding:5px 12px;font-size:12px" onclick="saveCaseForm()">✓ Save Case (status: active)</button>' +
+    '<button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="document.getElementById(\'caseForm\').remove()">✕ Cancel</button>' +
+    '</div></div>');
+}
+async function saveCaseForm(){
+  const g = id => { const el2 = document.getElementById(id); return el2 ? el2.value.trim() : ''; };
+  const caseNumber = g('caseNumber');
+  if(!caseNumber){ alert('Case number is required.'); return; }
+  try{
+    await api('/api/court-cases', { method: 'POST', body: JSON.stringify({
+      survey_number: _caseLand.survey, village: _caseLand.village || '', khasra_number: _caseLand.khasra || '',
+      case_number: caseNumber, case_type: g('caseType'), court_name: g('caseCourt'),
+      filed_date: g('caseFiled'), parties: g('caseParties'), relief_sought: g('caseRelief'),
+      notes: g('caseNotes'), status: 'active'
+    })});
+    loadCourtCases(_caseLand.docId);
+    loadLandRisk(_caseLand.docId);
+  }catch(e){ alert(e.message); }
+}
+async function closeCase(cid){
+  const outcome = prompt('Outcome — type exactly: decided / withdrawn / settled', 'decided');
+  if(outcome === null) return;
+  const status = outcome.trim().toLowerCase();
+  if(!['decided', 'withdrawn', 'settled'].includes(status)){ alert('Use: decided, withdrawn or settled'); return; }
+  const when = prompt('Decision / closure date (YYYY-MM-DD):', new Date().toISOString().slice(0, 10));
+  if(when === null) return;
+  const summary = prompt('Decision summary (what the court ordered):', '') || '';
+  try{
+    await api('/api/court-cases/' + cid + '/close', { method: 'POST',
+      body: JSON.stringify({ status, closed_date: when, decision_summary: summary })});
+    loadCourtCases(_caseLand.docId);
+    loadLandRisk(_caseLand.docId);
+  }catch(e){ alert(e.message); }
 }
 
 function openSystemStatus(){

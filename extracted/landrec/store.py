@@ -170,6 +170,26 @@ def init_db():
         created_at REAL,
         updated_at REAL
     );
+    CREATE TABLE IF NOT EXISTS court_cases (
+        id TEXT PRIMARY KEY,
+        survey_number TEXT NOT NULL,
+        khasra_number TEXT,
+        village TEXT,
+        case_type TEXT,
+        case_number TEXT,
+        court_name TEXT,
+        filed_date TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        closed_date TEXT,
+        parties TEXT,
+        relief_sought TEXT,
+        decision_summary TEXT,
+        notes TEXT,
+        created_by TEXT,
+        created_name TEXT,
+        created_at REAL,
+        updated_at REAL
+    );
     CREATE TABLE IF NOT EXISTS ai_proposals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         action_type TEXT NOT NULL,
@@ -901,6 +921,103 @@ def active_encumbrances(survey, village=""):
     """Active (unsettled) encumbrances on a piece of land — the ones that
     block an Encumbrance Certificate and flag a sale."""
     return [e for e in list_encumbrances(survey, village) if e["status"] == "active"]
+
+
+# ---------- Court cases / litigation on a piece of land ----------
+COURT_CASE_STATUSES = ("active", "decided", "withdrawn", "settled")
+
+
+def create_court_case(data, user):
+    """Register a court case / litigation against a piece of land
+    (keyed by survey + village, like encumbrances)."""
+    cid = uuid.uuid4().hex[:12]
+    ts = time.time()
+    status = (data.get("status") or "active").strip()
+    if status not in COURT_CASE_STATUSES:
+        raise ValueError("Invalid case status (use active/decided/withdrawn/settled)")
+    c = _conn()
+    c.execute("""INSERT INTO court_cases
+        (id, survey_number, khasra_number, village, case_type, case_number,
+         court_name, filed_date, status, closed_date, parties, relief_sought,
+         decision_summary, notes, created_by, created_name, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+              (cid,
+               str(data.get("survey_number") or "").strip(),
+               str(data.get("khasra_number") or "").strip(),
+               str(data.get("village") or "").strip(),
+               str(data.get("case_type") or "").strip(),
+               str(data.get("case_number") or "").strip(),
+               str(data.get("court_name") or "").strip(),
+               str(data.get("filed_date") or "").strip(),
+               status,
+               str(data.get("closed_date") or "").strip() or None,
+               str(data.get("parties") or "").strip(),
+               str(data.get("relief_sought") or "").strip(),
+               str(data.get("decision_summary") or "").strip(),
+               str(data.get("notes") or "").strip(),
+               user["id"], user.get("email") or user.get("full_name") or "",
+               ts, ts))
+    c.commit()
+    c.close()
+    audit(None, user["id"], user.get("email") or "", "court_case_created",
+          "%s on survey %s %s (%s)" % (data.get("case_number") or "case",
+                                       data.get("survey_number"),
+                                       data.get("khasra_number"), data.get("village")))
+    return get_court_case(cid)
+
+
+def get_court_case(cid):
+    c = _conn()
+    r = c.execute("SELECT * FROM court_cases WHERE id=?", (cid,)).fetchone()
+    c.close()
+    return dict(r) if r else None
+
+
+def list_court_cases(survey, village=""):
+    """All court cases on a piece of land (same survey + village; a case
+    registered without a village applies to the whole survey number),
+    newest-filed first."""
+    c = _conn()
+    q = "SELECT * FROM court_cases WHERE survey_number=?"
+    args = [str(survey or "").strip()]
+    if village:
+        q += " AND (village=? OR village IS NULL OR village='')"
+        args.append(str(village).strip())
+    q += " ORDER BY COALESCE(filed_date,'') DESC, created_at DESC"
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def close_court_case(cid, user, status, closed_date="", decision_summary=""):
+    """Record the outcome of a case (decided / withdrawn / settled).
+    Only an ACTIVE case can be closed."""
+    case = get_court_case(cid)
+    if not case:
+        return None
+    if case["status"] != "active":
+        raise ValueError("Only an ACTIVE case can be closed (current: %s)" % case["status"])
+    if status not in ("decided", "withdrawn", "settled"):
+        raise ValueError("Close status must be decided/withdrawn/settled")
+    c = _conn()
+    c.execute("""UPDATE court_cases SET status=?, closed_date=?,
+                 decision_summary=?, updated_at=? WHERE id=?""",
+              (status,
+               str(closed_date or "").strip() or None,
+               str(decision_summary or "").strip(),
+               time.time(), cid))
+    c.commit()
+    c.close()
+    audit(None, user["id"], user.get("email") or "", "court_case_closed",
+          "%s on survey %s %s -> %s" % (case.get("case_number") or "case",
+                                        case["survey_number"], case["khasra_number"], status))
+    return get_court_case(cid)
+
+
+def active_court_cases(survey, village=""):
+    """Active (pending) litigation on a piece of land — the one that
+    blocks a clean sale and gets stamped into any transfer approval."""
+    return [cs for cs in list_court_cases(survey, village) if cs["status"] == "active"]
 
 
 # ---------- Year-wise history / SLA / reports ----------

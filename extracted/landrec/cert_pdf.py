@@ -326,6 +326,38 @@ def render_encumbrance_pdf(doc: dict, risk: dict, years: int,
                     "this system's register shows.", 9.5, True, color=(0.05, 0.35, 0.15))
         y += 18
 
+    # ---------------- court cases / litigation ----------------
+    cases = risk.get("court_cases") or []
+    if cases:
+        y += 4
+        rule(y - 10)
+        line(y, "COURT CASES / LITIGATION ON THIS LAND", 10, True)
+        y += 16
+        active_n = sum(1 for c in cases if c.get("status") == "active")
+        if active_n:
+            line(y, "\u26a1  %d ACTIVE case(s) \u2014 this land is under pending litigation." % active_n,
+                 9.5, True, color=(0.55, 0.1, 0.05))
+            y += 15
+        for c in cases[:5]:
+            st = (c.get("status") or "").upper()
+            col = (0.55, 0.1, 0.05) if st == "ACTIVE" else (0.3, 0.3, 0.35)
+            line(y, "%-24s [%s]" % (str(c.get("case_number") or "case")[:24], st),
+                 9.5, True, color=col)
+            y += 12
+            if st == "ACTIVE":
+                summ = (c.get("relief_sought") or c.get("notes") or "pending")
+            else:
+                summ = (c.get("decision_summary") or c.get("notes") or "outcome on file")
+            line(y, "     %s%s  |  filed %s  |  %s"
+                 % (c.get("court_name") or "\u2014",
+                    (", " + c["case_type"]) if c.get("case_type") else "",
+                    c.get("filed_date") or "\u2014", str(summ)[:82]),
+                 8.5, False, color=col)
+            y += 14
+            if y > 668:
+                break
+        y += 8
+
     # ---------------- risk flags ----------------
     flags = [f for f in (risk.get("flags") or []) if f.get("code") not in
              ("ACTIVE_ENCUMBRANCE", "SALE_DURING_ENCUMBRANCE")]
@@ -363,6 +395,7 @@ def render_encumbrance_pdf(doc: dict, risk: dict, years: int,
         "EC", str(risk.get("survey") or ""), str(risk.get("khasra") or ""),
         str(risk.get("village") or ""), str(years), verdict,
         ";".join("%s:%s" % (e.get("creditor"), e.get("status")) for e in in_window),
+        ";".join("%s:%s" % (c.get("case_number"), c.get("status")) for c in cases),
     ])
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
     qr = qrcode.QRCode(box_size=1, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)

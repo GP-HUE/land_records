@@ -12,6 +12,8 @@ Checks (each returns a flag with severity + evidence):
   CRITICAL
     * ACTIVE_ENCUMBRANCE        a bank loan is still live on the land
     * SALE_DURING_ENCUMBRANCE   a transfer happened while a loan was live
+    * ACTIVE_LITIGATION         a court case on the land is still pending
+    * TRANSFER_DURING_LITIGATION a deed was signed while a case was pending
   WARNING
     * OWNER_CONFLICT_YEAR       different owners recorded in the SAME year
     * OWNER_CHANGE_NO_MUTATION  owner rolled over between years with no
@@ -19,6 +21,7 @@ Checks (each returns a flag with severity + evidence):
     * AREA_JUMP                 area changed a lot between years with no
                                 partition/merger mutation on file
   INFO
+    * CLOSED_LITIGATION_ON_RECORD prior (now-closed) court cases, for transparency
     * REJECTED_CONFLICT_COPY    a conflicting record exists but was rejected
                                 (the dispute is documented, not active)
     * CHAIN_GAP                 big gap in the passbook (informational)
@@ -96,7 +99,7 @@ def _same_owner(a, b):
     return difflib.SequenceMatcher(None, ka, kb).ratio() >= 0.82
 
 
-def land_risk(records, encumbrances=(), mutations=()):
+def land_risk(records, encumbrances=(), mutations=(), court_cases=()):
     """Compute the risk flags for a piece of land.
 
     records:      passbook rows (year, owner, area, khasra, doc_id,
@@ -104,6 +107,7 @@ def land_risk(records, encumbrances=(), mutations=()):
                   store.record_history, newest/oldest order doesn't matter
     encumbrances: rows from store.list_encumbrances for this land
     mutations:    mutation applications for this land (any status)
+    court_cases:  rows from store.list_court_cases for this land
     Returns a list of flags, most severe first:
       {code, severity, title, detail, evidence:[...]}
     """
@@ -152,6 +156,56 @@ def land_risk(records, encumbrances=(), mutations=()):
                        e.get("creditor") or "the creditor", lo),
                     ["mut:%s" % m.get("id"), "enc:%s" % e["id"]])
                 break
+
+    # ---------- court litigation ----------
+    for cs in (court_cases or []):
+        if cs.get("status") != "active":
+            continue
+        add("ACTIVE_LITIGATION", "critical",
+            "Active court case on this land",
+            "%s — %s%s%s (filed %s). Pending litigation — especially any "
+            "stay order — must be cleared or explicitly disclosed before a "
+            "transfer is approved."
+            % (cs.get("case_number") or "case",
+               cs.get("court_name") or "court",
+               (", " + cs["case_type"]) if cs.get("case_type") else "",
+               (" vs. " + cs["parties"]) if cs.get("parties") else "",
+               cs.get("filed_date") or "date unknown"),
+            ["case:%s" % cs["id"]])
+
+    # transfers that happened while a case was pending
+    for m in (mutations or []):
+        mdate = str(m.get("deed_date") or "")
+        if not mdate:
+            continue
+        for cs in (court_cases or []):
+            lo = str(cs.get("filed_date") or "")
+            hi = str(cs.get("closed_date") or "")
+            if lo and mdate >= lo and (not hi or mdate <= hi):
+                add("TRANSFER_DURING_LITIGATION", "critical",
+                    "Transfer while a court case was pending",
+                    "Deed %s dated %s transferred this land while case %s (%s) "
+                    "was pending. A transfer made during pending title/possession "
+                    "litigation is voidable and can be challenged in court."
+                    % (m.get("deed_no") or "deed", mdate,
+                       cs.get("case_number") or "case",
+                       cs.get("court_name") or "court"),
+                    ["mut:%s" % m.get("id"), "case:%s" % cs["id"]])
+                break
+
+    # closed litigation (transparency — the dispute history stays visible)
+    closed_cases = [cs for cs in (court_cases or [])
+                    if cs.get("status") in ("decided", "withdrawn", "settled")]
+    if closed_cases:
+        detail = "; ".join(
+            "%s (%s) — %s%s" % (cs.get("case_number") or "case",
+                                cs.get("filed_date") or "", cs.get("status"),
+                                (": " + cs["decision_summary"]) if cs.get("decision_summary") else "")
+            for cs in closed_cases[:3])
+        add("CLOSED_LITIGATION_ON_RECORD", "info",
+            "%d closed court case(s) on record for this land" % len(closed_cases),
+            "Prior litigation (now closed) is shown for transparency. " + detail,
+            ["case:%s" % cs["id"] for cs in closed_cases[:3]])
 
     def _group_distinct(rows):
         """Group rows by owner, merging names that refer to the same person

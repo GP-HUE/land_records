@@ -124,6 +124,13 @@ def main():
         ("EC report download", "encumbrance-pdf?years=13"),
         ("record loan form", "showEncForm()"),
         ("settle encumbrance action", "settleEncumbrance("),
+        # court case / litigation check
+        ("court case panel", 'id="casePanel"'),
+        ("court case load fn", "async function loadCourtCases("),
+        ("record case form", "showCaseForm()"),
+        ("close case action", "closeCase("),
+        ("court case API: close", "api('/api/court-cases/' + cid + '/close'"),
+        ("court case API: create", "api('/api/court-cases', { method: 'POST'"),
         # backup & restore
         ("backup card (admin)", 'id="backupCard"'),
         ("backup export button", "downloadBackup()"),

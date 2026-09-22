@@ -439,6 +439,36 @@ DEMO_MUTATIONS = [
      "review_notes": "Deed verified; new owner updated on the linked record."},
 ]
 
+# Court cases / litigation registered against pieces of land. Powers the
+# ⚖️ Court Case Check + the risk engine's litigation rules:
+#  * Sundarpur 452/77: after Mahesh Verma's conflicting 2019 copy was
+#    rejected, his heirs filed a CIVIL TITLE suit (2020-05-10) that is
+#    STILL ACTIVE — the 2021 sale therefore happened during pending
+#    litigation (the engine flags TRANSFER_DURING_LITIGATION, critical).
+#  * Barkheda 312/45-2: a revenue (khatauni-entry) dispute filed 2019,
+#    DECIDED in 2021 in favour of the record holder — the "prior litigation,
+#    now closed" transparency state.
+DEMO_COURT_CASES = [
+    {"survey_number": "452", "khasra_number": "77", "village": "Sundarpur",
+     "case_type": "civil", "case_number": "CS/2020/114",
+     "court_name": "District Court, Bhopal",
+     "filed_date": "2020-05-10", "status": "active", "closed_date": None,
+     "parties": "Heirs of Mahesh Verma vs. record holders",
+     "relief_sought": "Claim for a share in survey 452 (title/possession dispute)",
+     "decision_summary": "",
+     "notes": "Title suit — periodic hearings fixed; no stay order on transfer. "
+              "The sale deed SD/2021/118 was executed while this suit was pending."},
+    {"survey_number": "312", "khasra_number": "45/2", "village": "",
+     "case_type": "revenue", "case_number": "RA/2019/77",
+     "court_name": "Tehsildar / Revenue Tribunal, Huzur",
+     "filed_date": "2019-08-02", "status": "decided", "closed_date": "2021-03-15",
+     "parties": "Adjacent khata holder vs. Ramswoop Sharma",
+     "relief_sought": "Correction of khatauni entry (boundary overlap claim)",
+     "decision_summary": "Disputed the khatauni entry; decided in favour of the "
+                         "record holder (Ramswoop Sharma). No order affecting title.",
+     "notes": "Closed with the order; copy of the order kept in the village file."},
+]
+
 # Human corrections captured by the verification workflow (learning store).
 DEMO_CORRECTIONS = [
     ("area", "2.4 \u090f\u0915\u0921\u0930", "2.5 acres"),
@@ -600,14 +630,20 @@ def seed_demo_data(force=False):
         store.create_encumbrance(e, operator)
         n_enc += 1
 
+    # ---- court cases / litigation ----
+    n_cases = 0
+    for c in DEMO_COURT_CASES:
+        store.create_court_case(c, operator)
+        n_cases += 1
+
     total = _doc_count()
-    print("[seed] done - %d demo documents + %d mutation applications + %d encumbrances."
-          % (total, n_mut, n_enc))
+    print("[seed] done - %d demo documents + %d mutation applications + %d encumbrances + %d court cases."
+          % (total, n_mut, n_enc, n_cases))
     return {"seeded": True, "documents": total,
-            "message": "%d demo records + %d mutation applications + %d encumbrances created. "
+            "message": "%d demo records + %d mutations + %d encumbrances + %d court cases created. "
                        "Demo logins: demo.admin@demo.local / Demo@Admin1 - "
                        "demo.operator@demo.local / Demo@Operator1 - demo.verifier@demo.local / "
-                       "Demo@Verifier1" % (total, n_mut, n_enc)}
+                       "Demo@Verifier1" % (total, n_mut, n_enc, n_cases)}
 
 
 def seed_if_empty():
