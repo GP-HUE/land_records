@@ -3,6 +3,30 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.10 (22-Sep-2026) — All FOUR court-case statuses shown separately in the demo data
+### What
+The seeder now plants **one court case per status**, each on its own land, so
+you can see ACTIVE / DECIDED / WITHDRAWN / SETTLED each on their own record:
+  * **active**    — Sundarpur 452/77 : CS/2020/114 (civil title suit, District
+    Court Bhopal, filed 2020-05-10) — the 2021 sale ran during it
+  * **decided**   — Barkheda 312/45-2 : RA/2019/77 (revenue, decided 2021 for
+    the record holder)
+  * **withdrawn** — Arera 452/77 : POS/2018/41 (possession suit, plaintiff
+    abandoned it 2019 — "without prejudice")
+  * **settled**   — Kazipet 88/1 (Telugu pahani land) : CS/2021/208 (civil
+    boundary dispute, parties compromised 2022, compromise decree recorded)
+Open any of those records and its ⚖️ panel shows that status's chip:
+  active    -> red  banner + 🔴 ACTIVE_LITIGATION flag
+  decided   -> amber "prior litigation, closed" + 🔵 closed-case flag
+  withdrawn -> same closed state, chip says WITHDRAWN
+  settled   -> same closed state, chip says SETTLED, with the compromise summary
+### Verification
+test_court_cases.py extended to 31/31 (checks each of the four statuses is
+listed with the right case number + that the closed ones carry a
+CLOSED_LITIGATION_ON_RECORD info flag and NOT an active flag, and that all
+four statuses are present across the demo data). Regression 18/18,
+encumbrance/risk 37/37 re-run green.
+
 ## WHAT'S NEW IN v3.9.9 (22-Sep-2026) — ⚖️ COURT CASE / LITIGATION TRACKING on the land (answers "is there a pending case on this land?")
 ### What
 Court cases / litigation are now tracked **per piece of land** (same

@@ -467,6 +467,28 @@ DEMO_COURT_CASES = [
      "decision_summary": "Disputed the khatauni entry; decided in favour of the "
                          "record holder (Ramswoop Sharma). No order affecting title.",
      "notes": "Closed with the order; copy of the order kept in the village file."},
+    # WITHDRAWN — on the Arera 452/77 land (Bhopal): a 2018 possession suit
+    # the plaintiff abandoned ("each status separately" demo state).
+    {"survey_number": "452", "khasra_number": "77", "village": "Arera",
+     "case_type": "possession", "case_number": "POS/2018/41",
+     "court_name": "District Court, Bhopal",
+     "filed_date": "2018-04-22", "status": "withdrawn", "closed_date": "2019-01-10",
+     "parties": "Suresh Kumar vs. record holder (Arera 452)",
+     "relief_sought": "Permanent injunction for possession (encroachment claim)",
+     "decision_summary": "Plaintiff failed to prosecute; suit withdrawn under "
+                         "Order I Rule 1 (without prejudice). No order on merits.",
+     "notes": "Withdrawal order filed with the village file."},
+    # SETTLED — on the Kazipet 88/1 land (Telugu pahani): a civil boundary
+    # dispute the parties compromised out of court ("each status separately").
+    {"survey_number": "88/1", "khasra_number": "", "village": "\u0c15\u0c3e\u0c1c\u0c40\u0c2a\u0c47\u0c1f",
+     "case_type": "civil", "case_number": "CS/2021/208",
+     "court_name": "District Court, Warangal",
+     "filed_date": "2021-02-11", "status": "settled", "closed_date": "2022-02-18",
+     "parties": "Kajipet neighbours vs. record holder",
+     "relief_sought": "Declaration of boundary + rectification of demarcation",
+     "decision_summary": "Parties compromised; boundary re-demarcated by revenue "
+                         "survey and the compromise decree was recorded by the court.",
+     "notes": "Settlement copy kept with the pahani record."},
 ]
 
 # Human corrections captured by the verification workflow (learning store).

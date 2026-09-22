@@ -92,6 +92,37 @@ def main():
     check("Sarangpur: verdict clear, no cases", d.get("verdict") == "clear"
           and not d.get("court_cases"), (d.get("verdict"), d.get("court_cases")))
 
+    # WITHDRAWN — Arera 452/77 (Bhopal)
+    s, d = req("GET", "/api/documents/4a755138b869/risk", admin["token"])
+    cs = d.get("court_cases", [])
+    codes = [f["code"] for f in d.get("flags", [])]
+    check("Arera: withdrawn case listed",
+          len(cs) == 1 and cs[0]["status"] == "withdrawn" and cs[0]["case_number"] == "POS/2018/41", cs)
+    check("Arera: no ACTIVE_LITIGATION (withdrawn != active)", "ACTIVE_LITIGATION" not in codes, codes)
+    check("Arera: CLOSED_LITIGATION_ON_RECORD (info)", "CLOSED_LITIGATION_ON_RECORD" in codes, codes)
+    check("Arera: verdict still review (its own area-jump flags)", d.get("verdict") == "review",
+          (d.get("verdict"), codes))
+
+    # SETTLED — Kazipet 88/1 (Telugu pahani land)
+    s, d = req("GET", "/api/documents/f06287db668c/risk", admin["token"])
+    cs = d.get("court_cases", [])
+    codes = [f["code"] for f in d.get("flags", [])]
+    check("Kazipet: settled case listed",
+          len(cs) == 1 and cs[0]["status"] == "settled" and cs[0]["case_number"] == "CS/2021/208", cs)
+    check("Kazipet: decision summary present", "compromise" in (cs[0].get("decision_summary") or "").lower()
+          if cs else False, cs)
+    check("Kazipet: CLOSED_LITIGATION_ON_RECORD (info)", "CLOSED_LITIGATION_ON_RECORD" in codes, codes)
+    check("Kazipet: no ACTIVE_LITIGATION", "ACTIVE_LITIGATION" not in codes, codes)
+
+    # All four statuses represented in the demo data, each on its own land
+    all_statuses = set()
+    for did in ("78972f981b4e", "d15d4dccaddd", "4a755138b869", "f06287db668c"):
+        s, d = req("GET", "/api/documents/%s/risk" % did, admin["token"])
+        for c in d.get("court_cases", []):
+            all_statuses.add(c["status"])
+    check("demo data shows all 4 statuses separately",
+          all_statuses == {"active", "decided", "withdrawn", "settled"}, all_statuses)
+
     # ============ B. CRUD + RBAC ============
     print("\n--- B. case CRUD + roles ---")
     s, d = req("POST", "/api/court-cases", viewer["token"],
