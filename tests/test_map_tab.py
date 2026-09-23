@@ -29,7 +29,7 @@ def check(name, cond, extra=""):
 
 def req(method, path, token=None, data=None, raw=False):
     from ciutil import http as _http
-    return _http(BASE, method, path, tok, data, raw)
+    return _http(BASE, method, path, token, data, raw)
 
 
 def login(email, pw):

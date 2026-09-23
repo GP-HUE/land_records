@@ -27,7 +27,7 @@ def check(name, cond, extra=""):
 
 def req(method, path, token=None, data=None):
     from ciutil import http as _http
-    return _http(BASE, method, path, tok, data, raw)
+    return _http(BASE, method, path, token, data, False)
 
 
 def ring_area_m2(ring):

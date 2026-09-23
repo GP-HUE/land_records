@@ -9,14 +9,17 @@ import urllib.error
 import urllib.request
 
 
-def http(BASE, method, path, tok=None, data=None, raw=False, retries=4, wait=65):
+def http(BASE, method, path, tok=None, data=None, raw=False, headers=None,
+         retries=4, wait=65):
     """urllib request with 429 back-off. Returns (status, parsed_or_bytes)."""
     status, parsed = 0, None
     for _attempt in range(retries):
         body = json.dumps(data).encode() if data is not None else None
-        h = {"Content-Type": "application/json"} if data is not None else {}
+        h = dict(headers or {})
+        if data is not None:
+            h.setdefault("Content-Type", "application/json")
         if tok:
-            h["Authorization"] = "Bearer " + tok
+            h.setdefault("Authorization", "Bearer " + tok)
         r = urllib.request.Request(BASE + path, data=body, method=method, headers=h)
         try:
             with urllib.request.urlopen(r, timeout=300) as resp:
