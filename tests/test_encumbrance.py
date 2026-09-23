@@ -21,21 +21,8 @@ def check(name, cond, extra=""):
 
 
 def req(method, path, tok=None, data=None, raw=False):
-    body = json.dumps(data).encode() if data is not None else None
-    hdrs = {"Content-Type": "application/json"} if data is not None else {}
-    if tok:
-        hdrs["Authorization"] = "Bearer " + tok
-    r = urllib.request.Request(BASE + path, data=body, method=method, headers=hdrs)
-    try:
-        with urllib.request.urlopen(r, timeout=120) as resp:
-            b = resp.read()
-            return resp.status, (b if raw else (json.loads(b) if b else None))
-    except urllib.error.HTTPError as e:
-        b = e.read()
-        try:
-            return e.code, json.loads(b)
-        except Exception:
-            return e.code, b[:200].decode(errors="replace")
+    from ciutil import http as _http
+    return _http(BASE, method, path, tok, data, raw)
 
 
 def login(email, pw):
