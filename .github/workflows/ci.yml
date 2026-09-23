@@ -1,0 +1,129 @@
+# CI: runs the full test battery against a live local instance on every push.
+#
+# What runs here (all offline-safe): ~380 checks
+#   regression (18) · map tab (92) · map sheet (12) · full-page simulation (18)
+#   · digitize-coords (16) · encumbrance + risk engine (37) · court cases (31)
+#   · backup/restore (14) · reject flow (18) · boundary (31) · full system (56)
+#
+# Deliberately NOT in CI (they need external services or are slow):
+#   test_geocode_villages.js (live OSM Nominatim), test_ai_rescue.py (slow
+#   multi-pass OCR), legacy feature suites. Run those locally.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: extracted
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Tesseract + all 11 Indic packs (same set as the Dockerfile)
+      - name: Install Tesseract OCR + language packs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tesseract-ocr \
+            tesseract-ocr-ben tesseract-ocr-eng tesseract-ocr-guj \
+            tesseract-ocr-hin tesseract-ocr-kan tesseract-ocr-mal \
+            tesseract-ocr-ori tesseract-ocr-pan tesseract-ocr-tam \
+            tesseract-ocr-tel tesseract-ocr-urd fonts-lohit-deva
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet -r requirements.txt qrcode
+
+      # Boot the app on 127.0.0.1:8000 (fresh DB -> auto-seeds the demo office)
+      - name: Start server
+        run: |
+          nohup python -m uvicorn landrec.main:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+              echo "server healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to start:"; tail -40 server.log
+          exit 1
+
+      - name: Unit regression (offline)
+        run: python ../tests/regression_test.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+
+      - name: Map tab static + API checks
+        run: python ../tests/test_map_tab.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Village sheet cascade (JS)
+        run: node ../tests/test_map_sheet.js
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Full-page simulation (JS)
+        run: node ../tests/test_fullpage.js
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Digitize coordinate input (JS)
+        run: node ../tests/test_digitize_coords.js
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Encumbrance + fraud-risk engine
+        run: python ../tests/test_encumbrance.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Court cases / litigation tracking
+        run: python ../tests/test_court_cases.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Data backup & restore
+        run: python ../tests/test_backup.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Reject flow
+        run: python ../tests/test_reject_flow.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Plot boundaries (digitize/estimate/import)
+        run: python ../tests/test_boundary.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Full system battery (56 checks incl. multilingual OCR e2e)
+        run: python ../tests/full_system_test.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
+      - name: Server log (on failure)
+        if: failure()
+        run: tail -60 server.log
