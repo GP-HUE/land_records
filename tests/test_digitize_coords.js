@@ -10,7 +10,9 @@ const { createServer } = require('http');
 
 const BASE = LR_BASE;
 const html = fs.readFileSync(LR_ROOT + '/landrec/static/index.html', 'utf8');
-const js = fs.readFileSync('/tmp/main_script.js', 'utf8');
+// extract the main inline <script> block at runtime (no dev-time files)
+const _si = html.indexOf('<script>\n');
+const js = html.slice(_si + '<script>\n'.length, html.lastIndexOf('</script>'));
 
 // ---------- DOM stub ----------
 let _uid = 0;
