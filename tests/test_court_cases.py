@@ -74,6 +74,31 @@ def main():
           len(cs) == 1 and cs[0]["status"] == "decided" and "decided" in (cs[0].get("decision_summary") or "").lower()
           or (len(cs) == 1 and cs[0]["status"] == "decided"), cs)
 
+    # Fraud-demo land (Barkheda, Latin spelling / English record): the seeded
+    # fraud sale (deed 2025-06-01) ran while the PNB loan was active AND the
+    # title suit CS/2025/777 was pending; approving it re-named the owner,
+    # which conflicts with the still-pending 2023-24 upload.
+    s, d = req("GET", "/api/documents/0f8f73f343bd/risk", admin["token"])
+    codes = [f["code"] for f in d.get("flags", [])]
+    check("fraud-demo land: SALE_DURING_ENCUMBRANCE (critical)", "SALE_DURING_ENCUMBRANCE" in codes, codes)
+    check("fraud-demo land: TRANSFER_DURING_LITIGATION (critical)", "TRANSFER_DURING_LITIGATION" in codes, codes)
+    check("fraud-demo land: ACTIVE_LITIGATION (CS/2025/777)", "ACTIVE_LITIGATION" in codes, codes)
+    check("fraud-demo land: OWNER_CONFLICT_YEAR (2023)", "OWNER_CONFLICT_YEAR" in codes, codes)
+    check("fraud-demo land: verdict encumbered", d.get("verdict") == "encumbered", d.get("verdict"))
+    s, h = req("GET", "/api/documents/0f8f73f343bd/history", admin["token"])
+    rows = h.get("items", [])
+    new_row = [r for r in rows if r.get("id") == "2f1cb4898fe1"]
+    renamed = [r for r in rows if r.get("owner") == "Rajesh Gupta"]
+    check("fraud-demo land: pending upload is a history row", len(new_row) == 1,
+          [r.get("filename") for r in rows])
+    check("fraud-demo land: owner re-named by the approved fraud sale", len(renamed) == 1,
+          [r.get("owner") for r in rows])
+    s, mu = req("GET", "/api/mutations", admin["token"])
+    stamped = [m for m in mu.get("mutations", [])
+               if "ACTIVE LITIGATION" in (m.get("reviewer_notes") or "")]
+    check("fraud-demo: mutation carries the active-litigation stamp", len(stamped) >= 1,
+          len(stamped))
+
     # Sarangpur draft: clean land, no cases
     s, d = req("GET", "/api/documents/55d6f0957109/risk", admin["token"])
     check("Sarangpur: verdict clear, no cases", d.get("verdict") == "clear"

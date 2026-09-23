@@ -186,6 +186,29 @@ DEMO_RECORDS = [
         'routed': False,
         'age_h': 33,
     },
+    # The FRAUD-DEMO "new upload": a fresh khatauni for the SAME land
+    # (312/Barkheda, year 2023-24) still pending in the queue. It grows the
+    # passbook with a new row and feeds the same-year owner conflict once
+    # the fraud sale below re-names the linked record's owner.
+    {
+        'id': '2f1cb4898fe1',
+        'filename': 'khatauni_barkheda_2025.png',
+        'sample': 'english_jamabandi_sample.png',
+        'doc_type': 'land_record',
+        'status': 'pending_review',
+        'mean_conf': 91.8,
+        'languages': '[]',
+        'ocr_text': "|\nJAMABANDI / KHATAUNI CERTIFICAT!\nState: Madhya Pradesh\n| District: Bhopal |\nTehsil: Huzur\n| Village: Barkheda |\nKhata Number: 128\nKhasra Number: 45/2\n| Survey Number: 312 |\nLandowner Name: Ramswaroop Sharma\nFather's Name: Shyamlal Sharma\n| Area: 2.5 acre |\nLand Type: Irrigated Agricultural\n| Ownership: Private |\nMutation Number: 4471\nRegistration Number: MP/2021/8842\nKhatauni Year: 2023-24 |\n[od",
+        'fields': {'owner_name': {'value': 'Ramswaroop Sharma', 'quality': 0.9, 'confidence': 0.926}, 'father_name': {'value': 'Shyamlal Sharma', 'quality': 0.9, 'confidence': 0.908}, 'survey_number': {'value': '312', 'quality': 0.9, 'digits': '312', 'confidence': 0.936}, 'khasra_number': {'value': '45/2', 'quality': 0.9, 'digits': '452', 'confidence': 0.927}, 'khata_number': {'value': '128', 'quality': 0.9, 'digits': '128', 'confidence': 0.936}, 'area': {'value': '2.5 acre', 'quality': 0.8, 'num_value': 2.5, 'unit': 'acre', 'confidence': 0.89}, 'village': {'value': 'Barkheda', 'quality': 0.9, 'confidence': 0.906}, 'tehsil': {'value': 'Huzur', 'quality': 0.9, 'confidence': 0.912}, 'district': {'value': 'Bhopal', 'quality': 0.9, 'confidence': 0.936}, 'state': {'value': 'Madhya Pradesh', 'quality': 0.9, 'confidence': 0.936}, 'land_class': {'value': 'Irrigated', 'quality': 0.8, 'confidence': 0.896}, 'ownership_type': {'value': 'Private', 'quality': 0.8, 'confidence': 0.896}, 'mutation_no': {'value': '4471', 'quality': 0.9, 'digits': '4471', 'confidence': 0.936}, 'registration_no': {'value': 'MP/2021/8842', 'quality': 0.9, 'digits': '20218842', 'confidence': 0.915}, 'khatauni_year': {'value': '2023-24', 'quality': 0.9, 'digits': '202324', 'confidence': 0.936}},
+        'validation': {'issues': [{'field': 'transfer', 'severity': 'review', 'msg': "Possible ownership transfer: same survey + village as record 415fb562488b (khatauni_barkheda_2021.pdf) where the owner is 'रामस्वरूप शर्मा', but a different owner here - verify with the mutation/sale record before approving."}], 'verdict': 'review', 'low_confidence_fields': [], 'transfer_of': '415fb562488b'},
+        'verdict': 'review',
+        'lat': None,
+        'lon': None,
+        'boundary': None,
+        'boundary_source': None,
+        'routed': False,
+        'age_h': 2,
+    },
     {
         'id': 'd15d4dccaddd',
         'filename': 'hindi_khatauni_sample.png',
@@ -480,6 +503,17 @@ DEMO_COURT_CASES = [
      "notes": "Withdrawal order filed with the village file."},
     # SETTLED — on the Kazipet 88/1 land (Telugu pahani): a civil boundary
     # dispute the parties compromised out of court ("each status separately").
+    # ACTIVE - the FRAUD-DEMO title suit on Barkheda 312/45-2 (filed 2025,
+    # still pending). The fraud sale below (deed 2025-06-01) ran inside its
+    # window -> the engine shows TRANSFER_DURING_LITIGATION on the land.
+    {"survey_number": "312", "khasra_number": "45/2", "village": "Barkheda",
+     "case_type": "title", "case_number": "CS/2025/777",
+     "court_name": "District Court, Bhopal",
+     "filed_date": "2025-01-15", "status": "active", "closed_date": None,
+     "parties": "Rajesh Gupta vs. record holder",
+     "relief_sought": "Declaration of title + possession (claim of prior purchase, unregistered)",
+     "decision_summary": "",
+     "notes": "Claimant alleges an unregistered oral sale in 2019."},
     {"survey_number": "88/1", "khasra_number": "", "village": "\u0c15\u0c3e\u0c1c\u0c40\u0c2a\u0c47\u0c1f",
      "case_type": "civil", "case_number": "CS/2021/208",
      "court_name": "District Court, Warangal",
@@ -490,6 +524,28 @@ DEMO_COURT_CASES = [
                          "survey and the compromise decree was recorded by the court.",
      "notes": "Settlement copy kept with the pahani record."},
 ]
+
+# A third mutation application: the FRAUD-DEMO sale on Barkheda 312/45-2.
+# Deed dated 2025-06-01 - inside BOTH the live PNB mortgage (since
+# 2020-11-02, never settled) and the active title suit CS/2025/777 (filed
+# 2025-01-15). It is APPROVED (as in the live demo), so its reviewer note
+# carries both permanent stamps, and approving it re-names the linked
+# record's (0f8f73f343bd) owner to the claimant - which lights up the
+# same-year owner-conflict flag against the still-pending 2025 upload.
+DEMO_FRAUD_MUTATION = {
+    "age_h": 1, "status": "verified", "linked_doc_id": "0f8f73f343bd",
+    "data": {"transfer_type": "sale", "previous_owner": "Ramswaroop Sharma",
+             "new_owner": "Rajesh Gupta", "survey_number": "312",
+             "khasra_number": "45/2", "village": "Barkheda", "district": "Bhopal",
+             "state": "Madhya Pradesh", "deed_no": "SD/2025/311",
+             "deed_date": "2025-06-01",
+             "notes": "Claimed sale per the litigant's unregistered note (under challenge in CS/2025/777)."},
+    "review_notes": ("approved for demo | \u26a0 APPROVED WITH ACTIVE ENCUMBRANCE: "
+                     "Punjab National Bank (ref. PNB/2020/771) on this land (2020-11-02) "
+                     "\u2014 bank release must be verified. | \u26a0 APPROVED WITH ACTIVE "
+                     "LITIGATION: CS/2025/777 (District Court, Bhopal) on this land "
+                     "(filed 2025-01-15) \u2014 the court outcome must be verified."),
+}
 
 # Human corrections captured by the verification workflow (learning store).
 DEMO_CORRECTIONS = [
@@ -635,7 +691,8 @@ def seed_demo_data(force=False):
 
     # ---- mutations ----
     n_mut = 0
-    for m in DEMO_MUTATIONS:
+    all_mutations = list(DEMO_MUTATIONS) + [DEMO_FRAUD_MUTATION]
+    for m in all_mutations:
         m = dict(m)
         data = m["data"]
         mid = store.create_mutation(data, operator)

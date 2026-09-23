@@ -3,6 +3,43 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.9.11 (23-Sep-2026) — FRAUD-DEMO MUTATION SAMPLE (permanent): the "sale during live loan + case" story now seeds itself
+### What
+A third mutation application is now part of the seeded demo office — the
+complete fraud pattern from the live walkthrough, made permanent so it
+survives every redeploy:
+  * **New upload** (khatauni_barkheda_2025.png, survey 312/Barkheda,
+    2023-24) — still PENDING in the queue, with the pipeline's own
+    "possible ownership transfer" validation flag; it grows the passbook
+    with a new history row
+  * **Active title suit** CS/2025/777 (District Court Bhopal, filed
+    2025-01-15) registered on the same land
+  * **Fraud sale** MUT application SD/2025/311, deed dated **2025-06-01** —
+    inside BOTH the live PNB mortgage (since 2020-11-02, never settled)
+    and the case window — APPROVED with both permanent stamps in its
+    reviewer note + audit trail, and the approval re-named the linked
+    record's owner to the claimant
+### Result (open english_jamabandi_sample.png, Barkheda)
+  * 🛡️ verdict **encumbered** with 4 CRITICAL flags: active loan, active
+    case, transfer while loan live, transfer while case pending — plus a
+    same-year owner-conflict warning (the re-named owner vs the pending
+    upload) and the closed 2019 case for transparency
+  * 📜 history: 5 rows — 2020-21 रामस्वरूप शर्मा → 2023-24 **Rajesh Gupta**
+    (owner changed by the approved sale) → 2023-24 Ramswaroop Sharma
+    (new pending upload) → + the originals
+  * 🔁 Mutation list shows the application with its full event trail and
+    the double "approved with active encumbrance + litigation" stamp
+This is the ready-made story for the judges: a claimant uploads a new
+khatauni, a "sale" is approved while the bank's mortgage and a court case
+are both live, and the system flags every link of the chain — while the
+other demo lands stay clean (Sarangpur), closed-case-only (Barkheda Hindi
+spelling), withdrawn (Arera) or settled (Kazipet).
+### Verification
+test_court_cases.py extended to 39/39 (new fraud-demo section: all 5 flags
+on the English record, the pending upload as a history row, the re-named
+owner, the stamped mutation). Full battery re-run green: system 56 · map
+tab 92 · encumbrance 37 · regression 18 · reject 18 · boundary 31.
+
 ## WHAT'S NEW IN v3.9.10 (22-Sep-2026) — All FOUR court-case statuses shown separately in the demo data
 ### What
 The seeder now plants **one court case per status**, each on its own land, so
