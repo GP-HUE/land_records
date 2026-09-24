@@ -312,6 +312,33 @@ async function main(){
   vm.runInContext("mapCascadeRebuild()", sandbox);
   check('cascade shows no options when no records', optVals('sheetDistrict').length === 0, JSON.stringify(optVals('sheetDistrict')));
 
+  // ================= v3.10.0 static UI assertions =================
+  // Task 3: AI Task FAB must NOT sit on the floating nav pill (▲◀▶▼) —
+  // pill is bottom:24px, so the FAB must be higher (>=78px) and its panel
+  // higher still.
+  const fabM = html.match(/id="aiTaskFab"[\s\S]{0,260}?bottom:(\d+)px/);
+  check('ai task FAB raised above the arrow pill', !!fabM && parseInt(fabM[1], 10) >= 78, fabM && fabM[0].slice(0, 120));
+  const tpM = html.match(/id="aiTaskPanel"[\s\S]{0,260}?bottom:(\d+)px/);
+  check('ai task panel sits above its FAB', !!tpM && parseInt(tpM[1], 10) > parseInt(fabM ? fabM[1] : '0', 10), tpM && tpM[0].slice(0, 120));
+
+  // Task 2: per-record Audit Trail panel + loader + auto-load call
+  check('audit trail panel card in record detail', html.includes('id="auditPanel"') && html.includes('Audit Trail'));
+  check('loadRecordAudit function present', /async function loadRecordAudit\(docId\)/.test(js));
+  check('audit trail auto-loads with record detail', js.includes('loadRecordAudit(id);'));
+  check('audit loader calls the per-record endpoint', js.includes("/api/documents/' + docId + '/audit'"));
+  check('audit action labels (Hindi) present', js.includes('AUDIT_ACTION_HI') && js.includes('mutation_approved_with_litigation'));
+
+  // Task 4: SA (Superior Administrator) mode wiring
+  check('SA activation modal present', html.includes('id="saActivationModal"') && html.includes('SECURE ADMIN MODE'));
+  check('SA identity + password steps present', html.includes('id="saIdentityOptions"') && html.includes('id="saPasswordStep"') && html.includes('submitSaPassword()'));
+  check('SA report panel present', html.includes('id="saReportPanel"') && html.includes('SA Activity Report'));
+  check('hidden SA trigger intercept in aiSend', /q\.match\(\/\^SA\(\?\: \\\\s\+\(\.\+\)\)\?\$\/i\)/.test(js) || js.includes("q.match(/^SA(?:\\s+(.+))?$/i)"), js.includes('beginSaActivation('));
+  check('SA session functions present', ['beginSaActivation', 'submitSaPassword', 'exitSaMode', 'showSaReport', 'saSetHeader'].every(f => js.includes('function ' + f)));
+  for (const fn of ['beginSaActivation', 'submitSaPassword', 'exitSaMode', 'showSaReport', 'saSetHeader'])
+    check('SA fn ' + fn + ' defined', typeof vm.runInContext('typeof ' + fn, sandbox) === 'string' && vm.runInContext('typeof ' + fn, sandbox) === 'function');
+  check('SA endpoints used by UI', js.includes("'/api/admin/sa/activate-options'") && js.includes("'/api/admin/sa/activate'") && js.includes("'/api/admin/sa/query'") && js.includes("'/api/admin/sa/end'") && js.includes("/api/admin/sa/report?session_id="));
+  check('End-SA button + briefing button ids wired', html.includes('id="aiSaEndBtn"') && html.includes('id="aiBriefBtn"') && html.includes('id="aiTitleText"'));
+
   console.log('\\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }

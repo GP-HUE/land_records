@@ -170,6 +170,13 @@ def init_db():
         created_at REAL,
         updated_at REAL
     );
+    CREATE TABLE IF NOT EXISTS sa_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT,
+      ts REAL,
+      event_type TEXT,
+      detail TEXT
+    );
     CREATE TABLE IF NOT EXISTS court_cases (
         id TEXT PRIMARY KEY,
         survey_number TEXT NOT NULL,
@@ -923,6 +930,41 @@ def active_encumbrances(survey, village=""):
     return [e for e in list_encumbrances(survey, village) if e["status"] == "active"]
 
 
+def all_encumbrances():
+    """Every encumbrance in the system (all lands) — for the assistant's
+    system-wide loan statistics and the SA briefing."""
+    c = _conn()
+    rows = c.execute("SELECT * FROM encumbrances ORDER BY created_at DESC").fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+def all_court_cases():
+    """Every court case in the system (all lands)."""
+    c = _conn()
+    rows = c.execute("SELECT * FROM court_cases ORDER BY created_at DESC").fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
+# ---------- SA (Superior Administrator) mode event log ----------
+def sa_event(session_id, event_type, detail=""):
+    """Log one SA-mode event for the SA Activity Report (per session)."""
+    c = _conn()
+    c.execute("INSERT INTO sa_events (session_id, ts, event_type, detail) VALUES (?,?,?,?)",
+              (session_id, time.time(), event_type, str(detail or "")[:500]))
+    c.commit()
+    c.close()
+
+
+def sa_events_for(session_id):
+    c = _conn()
+    rows = c.execute("SELECT ts, event_type, detail FROM sa_events WHERE session_id=? "
+                     "ORDER BY ts", (session_id,)).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
 # ---------- Court cases / litigation on a piece of land ----------
 COURT_CASE_STATUSES = ("active", "decided", "withdrawn", "settled")
 
@@ -1093,7 +1135,7 @@ def csv_export_rows():
 
 
 # ---------- AI Approval Center (admin-approved proposals) ----------
-PROPOSAL_ACTIONS = ["verify_document", "delete_document"]
+PROPOSAL_ACTIONS = ["verify_document", "reject_document", "delete_document"]
 
 
 def create_proposal(action_type, target_id, description, target_display,
@@ -1164,6 +1206,13 @@ def decide_proposal(pid, decision, user):
         elif (doc.get("status") != before_expected.get("status")
               or json.loads(doc.get("extracted_json") or "{}") != before_expected.get("fields")):
             stale = "the record changed after the proposal was made (status/fields differ)"
+    elif p["action_type"] == "reject_document":
+        if not doc:
+            stale = "the target record no longer exists"
+        elif doc.get("status") != before_expected.get("status"):
+            stale = "the record's status changed after the proposal was made"
+        elif doc.get("status") == "rejected":
+            stale = "the record is already rejected"
     elif p["action_type"] == "delete_document":
         if not doc:
             stale = "the target record no longer exists (already deleted?)"
@@ -1185,6 +1234,12 @@ def decide_proposal(pid, decision, user):
             if fields is None:
                 raise RuntimeError("record vanished during execution")
             certify_document(p["target_id"], user["email"])
+        elif p["action_type"] == "reject_document":
+            reason = json.loads(p.get("after_state") or "{}").get("reason") or "Rejected via AI proposal"
+            reject_document(p["target_id"], reason, user)
+            after = get_document(p["target_id"])
+            if not after or after.get("status") != "rejected":
+                raise RuntimeError("record was not rejected")
         elif p["action_type"] == "delete_document":
             if not hard_delete_document(p["target_id"], user):
                 raise RuntimeError("record vanished during execution")

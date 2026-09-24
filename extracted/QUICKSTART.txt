@@ -3,6 +3,50 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.10.0 (24-Sep-2026) — SA MODE + SMARTER ASSISTANT + PER-RECORD AUDIT TRAIL
+### 1) 🛡️ SA — Superior Administrator mode (ported from the reference portal)
+A hidden secure layer inside the offline 🤖 AI Assistant — admins only:
+  * Type `SA` (or `SA <code>`) in the assistant chat → SECURE ADMIN MODE
+    modal → pick an administrator identity → re-enter THAT admin's password
+    (server-verified only, never stored in the browser) → a 30-minute SA
+    session opens; the header flips to "🛡️ SA · Superior Administrator AI"
+  * In SA mode the assistant plans & coordinates across every feature:
+    `verify record <id>`, `reject record <id> because <reason>`,
+    `delete record <id>` — each becomes a proposal that waits in the
+    📋 AI Approval Center (before-state re-check, executes exactly once,
+    hash-chained audit); `assign record <id> to verification officer
+    [priority high]` runs directly as an AI Task (coordination ≠ mutation)
+  * 📊 SA Activity Report (Briefing button transforms) — timestamped log of
+    every event in the session; `exit SA` (or ⏻ End SA) closes it;
+    sessions are memory-only: an app restart ends them by design
+  * Backend: new module landrec/sa_admin.py + sa_events table + admin-only
+    API /api/admin/sa/{activate-options,activate,query,end,report}; NEW
+    proposal action `reject_document` added to the Approval Center
+### 2) 🤖 Assistant now knows every recent feature
+The offline assistant answers the modules users asked about — 🏦 loans/
+encumbrance (what/settle/EC report), ⚖️ court cases (4 statuses + cascades),
+🛡️ fraud-risk engine (flags, verdicts, evidence), 📄 certified/EC/village-
+sheet PDFs + QR, 💾 backup & restore, 🗺️ real map/boundaries/digitize,
+📝 mutation workflow + safety gate, 📜 audit trail, 🛡️ SA itself — plus
+LIVE answers: "how many loans are active?", "which records are risky?",
+"which records have a court case/an active loan?", "risk of <record id>"
+(screens every land and returns clickable record rows), and the 📊 briefing
+now includes loan + litigation lines.
+### 3) 📜 Per-record Audit Trail
+Like the land History, but for actions ON the record: open any record →
+new "📜 Audit Trail" panel (auto-loads) shows the hash-chained, tamper-
+evident sequence — upload → draft → submit → verified/certified → gate
+stamps → PDF downloads — with actor, timestamp, Hindi+English labels and
+the 16-char chain-hash prefix per row. API: GET /api/documents/{id}/audit.
+Deleting a record never deletes its audit rows.
+### 4) UI fix: 🤖 AI Tasks button no longer sits on the ▲◀▶▼ nav pill
+The floating AI-Tasks button was overlapping the bottom-right scroll/step
+arrows — it now stacks above the pill (task panel above that).
+### Tests
+510 checks green incl. 3 new suites: test_sa_mode.py (42), 
+test_assistant_new_features.py (28), test_record_audit.py (18) + fullpage
+sim 37 (SA wiring, FAB position, audit panel, assist modes).
+
 ## WHAT'S NEW IN v3.9.11 (23-Sep-2026) — FRAUD-DEMO MUTATION SAMPLE (permanent): the "sale during live loan + case" story now seeds itself
 ### What
 A third mutation application is now part of the seeded demo office — the

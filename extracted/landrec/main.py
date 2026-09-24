@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 # (OpenCV / Tesseract / PyMuPDF) runs in the disposable worker process via
 # ocrpool, so a bad file can never crash the web-server process itself.
 from . import ai_rescue, auth, cert_pdf, common, extractor, ocrpool, paths, store, validator
-from . import ai_support, ai_assistant
+from . import ai_support, ai_assistant, sa_admin
 
 PKG = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(paths.resource_dir(), "landrec", "static")
@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.9.11"
+APP_VERSION = "3.10.0"
 
 
 def _warmup_ocr_worker():
@@ -880,6 +880,79 @@ def assistant_ask(payload: dict, user: dict = Depends(get_current_user)):
 def assistant_briefing(user: dict = Depends(get_current_user)):
     """One-click system briefing for the AI assistant panel."""
     return ai_assistant.briefing(user_id=user["id"], role=user.get("role"))
+
+
+# ==========================================================================
+# SA — Superior Administrator mode (hidden: type 'SA' in the AI assistant)
+# ==========================================================================
+def _sa_error(e: sa_admin.SAError):
+    return HTTPException(e.status, str(e))
+
+
+@app.post("/api/admin/sa/activate-options")
+def sa_activate_options(payload: dict, user: dict = Depends(require_role("admin"))):
+    """SA step 1: validate the activation code, return admin identities."""
+    try:
+        return sa_admin.activate_options(payload.get("code") or "", user)
+    except sa_admin.SAError as e:
+        raise _sa_error(e)
+
+
+@app.post("/api/admin/sa/activate")
+def sa_activate(payload: dict, user: dict = Depends(require_role("admin"))):
+    """SA step 2: re-authenticate the chosen administrator (password checked
+    server-side only) and open a short-lived SA session."""
+    try:
+        return sa_admin.activate(payload.get("code") or "",
+                                 payload.get("administrator") or "",
+                                 payload.get("password") or "", user)
+    except sa_admin.SAError as e:
+        raise _sa_error(e)
+
+
+@app.post("/api/admin/sa/query")
+def sa_query(payload: dict, user: dict = Depends(require_role("admin"))):
+    """One SA-mode message: plan/coordinate across features; consequential
+    actions become AI Approval Center proposals."""
+    try:
+        return sa_admin.query(payload.get("session_id") or "",
+                              payload.get("query") or payload.get("q") or "", user)
+    except sa_admin.SAError as e:
+        raise _sa_error(e)
+
+
+@app.post("/api/admin/sa/end")
+def sa_end(payload: dict, user: dict = Depends(require_role("admin"))):
+    """End the SA session — back to normal assistant mode."""
+    try:
+        return sa_admin.end(payload.get("session_id") or "", user)
+    except sa_admin.SAError as e:
+        raise _sa_error(e)
+
+
+@app.get("/api/admin/sa/report")
+def sa_report(session_id: str = Query(""), user: dict = Depends(require_role("admin"))):
+    """The SA Activity Report: timestamped log of everything the session did."""
+    try:
+        return sa_admin.report(session_id, user)
+    except sa_admin.SAError as e:
+        raise _sa_error(e)
+
+
+@app.get("/api/documents/{doc_id}/audit")
+def document_audit(doc_id: str, user: dict = Depends(get_current_user)):
+    """Per-record audit trail: the hash-chained, tamper-evident history of
+    THIS one record (upload → draft → verification → gate stamps → PDF
+    downloads), oldest first. Read-only — like the land history, but for
+    actions taken ON the record."""
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(404, "Not found")
+    rows = store.get_audit(doc_id)
+    return {"document_id": doc_id, "audit": [
+        {"ts": r.get("ts"), "username": r.get("username") or "",
+         "action": r.get("action") or "", "detail": r.get("detail") or "",
+         "hash": (r.get("entry_hash") or "")[:16]} for r in rows]}
 
 
 def _diff_fields(fa: dict, fb: dict):

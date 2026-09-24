@@ -2145,13 +2145,14 @@
     style="position:fixed;left:18px;bottom:84px;z-index:9997;width:420px;max-width:calc(100vw - 36px);
            max-height:72vh;background:#fff;border:2px solid var(--gov-navy);border-radius:14px;
            box-shadow:0 18px 50px rgba(15,43,72,.35);display:flex;flex-direction:column;overflow:hidden">
-    <div style="background:var(--gov-navy);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+    <div id="aiPanelHeader" style="background:var(--gov-navy);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <div>
-        <div style="font-weight:800;font-size:14px">🤖 AI Assistant <span style="font-weight:400;font-size:11px;opacity:.85">— 100% offline, no data leaves this PC</span></div>
-        <div style="font-size:11px;opacity:.85">Website help · document search · record questions</div>
+        <div id="aiTitleText" style="font-weight:800;font-size:14px">🤖 AI Assistant <span style="font-weight:400;font-size:11px;opacity:.85">— 100% offline, no data leaves this PC</span></div>
+        <div id="aiSubtitle" style="font-size:11px;opacity:.85">Website help · document search · record questions</div>
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="aiBriefing()" title="One-click system briefing">📊 Briefing</button>
+        <button id="aiSaEndBtn" class="btn ghost" style="padding:2px 8px;font-size:11px;display:none" onclick="exitSaMode()" title="End the SA session">⏻ End SA</button>
+        <button id="aiBriefBtn" class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="aiBriefing()" title="One-click system briefing">📊 Briefing</button>
         <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="toggleAiPanel()">✕</button>
       </div>
     </div>
@@ -2163,6 +2164,46 @@
         onkeydown="if(event.key==='Enter')aiSend()">
       <button class="btn" style="padding:8px 14px;font-size:13px" onclick="aiSend()">Ask</button>
     </div>
+  </div>
+
+  <!-- ============ SA ACTIVATION MODAL (hidden secure admin mode) ============ -->
+  <div id="saActivationModal" class="hidden" style="position:fixed;inset:0;z-index:99999;align-items:center;justify-content:center;padding:18px;display:flex">
+    <div style="position:absolute;inset:0;background:rgba(15,43,72,.55)" onclick="closeSaActivation()"></div>
+    <div style="position:relative;background:#fff;border-radius:16px;max-width:520px;width:100%;box-shadow:0 24px 60px rgba(15,23,42,.35);overflow:hidden">
+      <div style="background:linear-gradient(135deg,#1e1b4b,#5b21b6);color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div>
+          <div style="font-size:10px;letter-spacing:2px;font-weight:800;opacity:.85">SECURE ADMIN MODE · सुरक्षित एडमिन मोड</div>
+          <div style="font-weight:900;font-size:18px;margin-top:2px">🛡️ Activate SA — Superior Administrator</div>
+          <div id="saSubtitle" style="font-size:12px;opacity:.9;margin-top:2px">Select the administrator identity for this SA session (SA सत्र के लिए व्यवस्थापक चुनें).</div>
+        </div>
+        <button type="button" onclick="closeSaActivation()" style="background:transparent;border:0;color:#fff;font-size:22px;cursor:pointer;line-height:1">×</button>
+      </div>
+      <div style="padding:14px 16px">
+        <div id="saIdentityOptions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px"></div>
+        <div id="saPasswordStep" class="hidden">
+          <button type="button" class="btn ghost" style="font-size:11px;padding:3px 8px" onclick="backToSaIdentities()">← Choose a different administrator</button>
+          <div style="display:flex;align-items:center;gap:10px;margin:10px 0;padding:10px;border:1px solid #ddd6fe;border-radius:10px;background:#faf5ff">
+            <span id="saSelectedAvatar" style="width:36px;height:36px;border-radius:50%;background:#5b21b6;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;flex:none">?</span>
+            <div><b id="saSelectedName">Administrator</b><br><small style="color:var(--muted)">SA identity authentication — server-verified only</small></div>
+          </div>
+          <label style="font-size:12px;font-weight:700" for="saIdentityPassword">Administrator password (व्यवस्थापक पासवर्ड)</label>
+          <input id="saIdentityPassword" type="password" autocomplete="current-password" placeholder="Enter the selected administrator password"
+            style="width:100%;margin-top:4px;padding:9px 10px;border:1px solid var(--gov-border);border-radius:8px;box-sizing:border-box"
+            onkeydown="if(event.key==='Enter')submitSaPassword()">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Checked only by the server — never displayed or stored in the browser.</div>
+          <button type="button" id="saPasswordSubmit" class="btn ok" style="margin-top:10px;width:100%;background:#5b21b6" onclick="submitSaPassword()">🔓 Unlock SA</button>
+        </div>
+        <div id="saActivationError" class="hidden" style="margin-top:10px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;border-radius:8px;padding:8px 10px;font-size:12px"></div>
+      </div>
+    </div>
+  </div>
+  <!-- SA Activity Report panel -->
+  <div id="saReportPanel" class="hidden" style="position:fixed;left:18px;bottom:84px;z-index:99998;width:420px;max-width:calc(100vw - 36px);max-height:60vh;overflow:auto;background:#fff;border:2px solid #5b21b6;border-radius:14px;box-shadow:0 18px 50px rgba(76,29,149,.35)">
+    <div style="background:#5b21b6;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <b style="font-size:13px">📊 SA Activity Report<span id="saReportAdmin"></span></b>
+      <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="closeSaReport()">Close</button>
+    </div>
+    <div id="saReportList" style="padding:10px"></div>
   </div>
 
   <!-- Official Gov Footer -->
@@ -3265,10 +3306,10 @@ let _aiTaskTimer = null;
 function aiTaskFabHtml(){
   return '' +
   '<button id="aiTaskFab" type="button" onclick="toggleAiTaskPanel()" ' +
-  'style="position:fixed;right:22px;bottom:22px;z-index:9998;border:0;border-radius:999px;padding:12px 16px;' +
+  'style="position:fixed;right:22px;bottom:84px;z-index:9998;border:0;border-radius:999px;padding:12px 16px;' +
   'background:#0b2f55;color:#fff;font-weight:800;box-shadow:0 8px 24px rgba(0,0,0,.25);cursor:pointer;font-size:13px">' +
   '🤖 AI Tasks <span id="aiTaskBadge" style="display:none;margin-left:5px;background:#dc2626;border-radius:999px;padding:2px 7px;font-size:11px">0</span></button>' +
-  '<div id="aiTaskPanel" style="display:none;position:fixed;right:22px;bottom:80px;width:min(460px,calc(100vw - 32px));max-height:72vh;overflow:auto;' +
+  '<div id="aiTaskPanel" style="display:none;position:fixed;right:22px;bottom:142px;width:min(460px,calc(100vw - 32px));max-height:72vh;overflow:auto;' +
   'z-index:9998;background:#fff;border:1px solid #cbd5e1;border-radius:14px;box-shadow:0 16px 45px rgba(15,23,42,.28);font-size:13px">' +
   '<div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:8px">' +
   '<div><div style="font-weight:900;color:#0b2f55">🤖 AI Task Inbox</div>' +
@@ -5492,6 +5533,18 @@ async function showDocDetail(id, pushHistory=true){
         <div id="casePanel" style="margin-top:10px"></div>
       </div>
 
+      <!-- 📜 Record audit trail — every action ON this record, hash-chained -->
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#166534">📜 Audit Trail — इस अभिलेख पर हुई हर कार्रवाई (क्रमवार, छेड़छाड़-रोधी)</div>
+            <div style="font-size:11.5px;color:var(--muted)">Just like the land's History, but for actions ON this record: upload → draft → verification → gate stamps → PDF downloads. Every row is hash-chained; deleting a record never deletes its audit rows.</div>
+          </div>
+          <button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="loadRecordAudit('${d.id}')">📜 Load Audit Trail</button>
+        </div>
+        <div id="auditPanel" style="margin-top:10px"></div>
+      </div>
+
       <!-- Action Bar (Save & Verify) -->
       ${canEdit ? `
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:12px;margin-top:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -5592,11 +5645,12 @@ async function showDocDetail(id, pushHistory=true){
       recordHistoryState({tab: 'documents', docId: id, detailStep: 1});
     }
 
-    // Land-level checks (encumbrance + fraud risk) — auto-load for the demo,
-    // the 🏦 / 🛡️ buttons above re-load on demand.
+    // Land-level checks (encumbrance + fraud risk + court cases + audit
+    // trail) — auto-load for the demo; the panel buttons re-load on demand.
     loadEncumbrances(id);
     loadLandRisk(id);
     loadCourtCases(id);
+    loadRecordAudit(id);
 
     // Smooth scroll into detail view
     box.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -5920,6 +5974,60 @@ function _caseChip(status){
   const it = m[status] || [status, 'background:#f1f5f9;color:#334155;border:1px solid #e2e8f0'];
   return '<span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;' + it[1] + '">' + it[0] + '</span>';
 }
+// 📜 Per-record audit trail (v3.10) — the hash-chained, tamper-evident
+// history of actions ON this one record, oldest first.
+const AUDIT_ACTION_HI = {
+  'record_uploaded': 'रिकॉर्ड अपलोड हुआ (record uploaded)',
+  'ocr_completed': 'OCR पूर्ण (OCR completed)',
+  'draft_saved': 'ड्राफ्ट सहेजा गया (draft saved)',
+  'submitted_for_verification': 'सत्यापन हेतु भेजा गया (submitted for verification)',
+  'record_verified': 'मानवीय सत्यापन पूर्ण (verified by officer)',
+  'record_returned': 'सुधार हेतु लौटाया गया (returned for correction)',
+  'record_rejected': 'अभिलेख अस्वीकृत (record rejected)',
+  'certified_copy_downloaded': 'प्रमाणित प्रति डाउनलोड (certified PDF downloaded)',
+  'encumbrance_report_downloaded': 'EC रिपोर्ट डाउनलोड (EC report downloaded)',
+  'mutation_created': 'नामांतरण आवेदन (mutation application)',
+  'mutation_approved': 'नामांतरण स्वीकृत (mutation approved)',
+  'mutation_approved_with_encumbrance': '⚠ ऋण सहित नामांतरण स्वीकृत (approved WITH active loan)',
+  'mutation_approved_with_litigation': '⚠ मुकदमा सहित नामांतरण स्वीकृत (approved WITH active case)',
+  'encumbrance_created': 'ऋण/बंधक दर्ज (loan registered)',
+  'encumbrance_settled': 'ऋण निपटान (loan settled)',
+  'court_case_created': 'मुकदमा दर्ज (court case registered)',
+  'court_case_closed': 'मुकदमा बंद (court case closed)',
+  'boundary_set': 'सीमांकन दर्ज (boundary drawn)',
+  'boundary_cleared': 'सीमांकन हटाया (boundary cleared)',
+  'location_set': 'GIS पिन दर्ज (map pin set)',
+  'ai_proposal_executed': 'AI प्रस्ताव स्वीकृत-क्रियान्वित (AI proposal approved & executed)',
+  'ai_proposal_rejected': 'AI प्रस्ताव अस्वीकृत (AI proposal rejected)',
+  'ai_proposal_stale': 'AI प्रस्ताव निष्प्रभावी (AI proposal gone stale)',
+};
+async function loadRecordAudit(docId){
+  const box = $('#auditPanel'); if(!box) return;
+  box.innerHTML = '<span class="spinner" style="display:inline-block"></span> <span class="muted">Loading this record\'s audit trail…</span>';
+  let d;
+  try{ d = await api('/api/documents/' + docId + '/audit'); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  const rows = d.audit || [];
+  if(!rows.length){
+    box.innerHTML = '<span class="muted" style="font-size:12px">No actions recorded on this record yet.</span>';
+    return;
+  }
+  box.innerHTML = '<div style="border:1px solid #bbf7d0;border-radius:8px;overflow:hidden;background:#fff">' +
+    rows.map((r,i)=>{
+      const dt = new Date((r.ts||0)*1000).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const label = AUDIT_ACTION_HI[r.action] || r.action.replace(/_/g,' ');
+      return '<div style="display:flex;gap:8px;align-items:flex-start;padding:7px 10px;' + (i? 'border-top:1px dashed #d1fae5;':'') + 'font-size:12px;line-height:1.5">' +
+        '<span style="flex:none;width:20px;height:20px;border-radius:50%;background:#dcfce7;color:#166534;font-size:10.5px;font-weight:800;display:flex;align-items:center;justify-content:center">' + (i+1) + '</span>' +
+        '<div style="flex:1"><b style="color:#14532d">' + escapeHtml(label) + '</b> ' +
+        '<span class="muted">— ' + escapeHtml(r.username||'system') + '</span>' +
+        (r.detail ? '<br><span style="color:#334155">' + escapeHtml(r.detail) + '</span>' : '') +
+        '<br><span style="font-size:10.5px;color:#65a30d">' + dt + '</span>' +
+        (r.hash ? ' <span style="font-size:10px;color:var(--muted)" title="tamper-evident chain hash (first 16 chars)">🔗 ' + escapeHtml(r.hash) + '</span>' : '') +
+        '</div></div>';
+    }).join('') + '</div>' +
+    '<div class="muted" style="font-size:10.5px;margin-top:6px">🔐 Hash-chained & tamper-evident — the 🔐 Audit Log tab (admin) verifies the whole chain.</div>';
+}
+
 async function loadCourtCases(docId){
   const box = $('#casePanel'); if(!box) return;
   box.innerHTML = '<span class="spinner" style="display:inline-block"></span> <span class="muted">Checking court cases on this land…</span>';
@@ -6410,13 +6518,15 @@ function toggleAiPanel(){
       '<button class="chip" style="cursor:pointer;font-size:11px" onclick="aiSend(\'' + c + '\')">' + c + '</button>').join('');
   }
 }
-function aiAdd(who, html, results, action, actionCard){
+function aiAdd(who, html, results, action, actionCard, sa){
   const box = $('#aiMsgs');
   if(!box) return null;
   const m = document.createElement('div');
   m.style.cssText = who==='me'
     ? 'align-self:flex-end;background:var(--gov-navy);color:#fff;max-width:85%;padding:8px 12px;border-radius:12px 12px 2px 12px;font-size:13px;line-height:1.45'
-    : 'align-self:flex-start;background:#fff;border:1px solid var(--gov-border);max-width:100%;padding:10px 12px;border-radius:12px 12px 12px 2px;font-size:13px;line-height:1.5';
+    : (sa
+      ? 'align-self:flex-start;background:#faf5ff;border:2px solid #7c3aed;max-width:100%;padding:10px 12px;border-radius:12px 12px 12px 2px;font-size:13px;line-height:1.5'
+      : 'align-self:flex-start;background:#fff;border:1px solid var(--gov-border);max-width:100%;padding:10px 12px;border-radius:12px 12px 12px 2px;font-size:13px;line-height:1.5');
   m.innerHTML = html;
   if(results && results.length){
     results.forEach(r=>{
@@ -6548,20 +6658,182 @@ async function aiSend(q){
   const inp = $('#aiInput');
   if(!q && inp) q = inp.value.trim();
   if(!q) return;
+  // --- hidden SA trigger: "SA" or "SA <code>" opens the activation modal ---
+  const saM = q.match(/^SA(?:\s+(.+))?$/i);
+  if(saM){
+    if(inp) inp.value = '';
+    aiAdd('me', escapeHtml(q));
+    if(saSessionId){
+      aiAdd('bot', '🛡️ SA mode is already active as <b>' + escapeHtml(saAdminLabel || 'SA') + '</b>. Ask me anything — or press ⏻ End SA.', null, null, null, true);
+      return;
+    }
+    beginSaActivation((saM[1] || '').trim() || 'SA');
+    return;
+  }
+  // --- "exit SA" ends the session from the chat itself ---
+  if(saSessionId && /^(exit|end|close|stop)\s+sa\.?$/i.test(q)){
+    if(inp) inp.value = '';
+    aiAdd('me', escapeHtml(q));
+    exitSaMode();
+    return;
+  }
   if(inp) inp.value = '';
   aiAdd('me', escapeHtml(q));
   aiBusy = true;
-  const think = aiAdd('bot', '<span style="color:var(--muted)">Thinking…</span>');
+  const think = aiAdd('bot', '<span style="color:var(--muted)">Thinking…</span>', null, null, null, !!saSessionId);
   try{
-    const d = await api('/api/assistant/ask', {method:'POST', body: JSON.stringify({q: q})});
+    const d = saSessionId
+      ? await api('/api/admin/sa/query', {method:'POST', body: JSON.stringify({session_id: saSessionId, query: q})})
+      : await api('/api/assistant/ask', {method:'POST', body: JSON.stringify({q: q})});
     if(think) think.remove();
-    aiAdd('bot', escapeHtml(d.answer || '…'), d.results, d.action, d.action_card);
+    aiAdd('bot', escapeHtml(d.answer || '…'), d.results, d.action, d.action_card, !!saSessionId);
   }catch(e){
     if(think) think.remove();
-    aiAdd('bot', '⚠ ' + escapeHtml(e.message));
+    if(/SA session not found|SA session.*expired/i.test(String(e.message))){
+      saSessionId = null; saAdminLabel = null; saSetHeader(false);
+      aiAdd('bot', '⚠ ' + escapeHtml(e.message) + ' (SA mode was switched off.)');
+    }else{
+      aiAdd('bot', '⚠ ' + escapeHtml(e.message), null, null, null, !!saSessionId);
+    }
   }
   aiBusy = false;
 }
+
+// ==========================================================================
+// SA — Superior Administrator mode (hidden secure layer of the assistant)
+// ==========================================================================
+let saSessionId = null, saAdminLabel = null;
+let _saCode = '', _saIdentity = '';
+
+function saSetHeader(active){
+  const t = $('#aiTitleText'), s = $('#aiSubtitle'), bb = $('#aiBriefBtn'), eb = $('#aiSaEndBtn'), hdr = $('#aiPanelHeader');
+  if(active){
+    if(t) t.innerHTML = '🛡️ SA · Superior Administrator AI <span class="chip" style="background:#ede9fe;color:#5b21b6;font-size:10px;margin-left:4px">' + escapeHtml(saAdminLabel || 'SA') + '</span>';
+    if(s) s.textContent = 'secure admin session — actions approval-gated & logged · type “exit SA” to end';
+    if(bb){ bb.textContent = '📊 SA Report'; bb.onclick = showSaReport; bb.title = 'SA Activity Report — everything this session did'; }
+    if(eb) eb.style.display = '';
+    if(hdr) hdr.style.background = 'linear-gradient(135deg,#1e1b4b,#5b21b6)';
+  }else{
+    if(t) t.innerHTML = '🤖 AI Assistant <span style="font-weight:400;font-size:11px;opacity:.85">— 100% offline, no data leaves this PC</span>';
+    if(s) s.textContent = 'Website help · document search · record questions';
+    if(bb){ bb.textContent = '📊 Briefing'; bb.onclick = aiBriefing; bb.title = 'One-click system briefing'; }
+    if(eb) eb.style.display = 'none';
+    if(hdr) hdr.style.background = 'var(--gov-navy)';
+  }
+}
+
+async function beginSaActivation(code){
+  aiBusy = true;
+  const think = aiAdd('bot', '<span style="color:var(--muted)">Consulting the SA gate…</span>', null, null, null, true);
+  try{
+    const d = await api('/api/admin/sa/activate-options', {method:'POST', body: JSON.stringify({code: code})});
+    if(think) think.remove();
+    _saCode = code;
+    renderSaIdentityOptions(d.options || []);
+    $('#saActivationModal').classList.remove('hidden');
+  }catch(e){
+    if(think) think.remove();
+    const msg = String(e.message || '');
+    if(/not authorized|insufficient|403|role/i.test(msg)){
+      aiAdd('bot', '🔒 SA mode is for administrators only — your account role cannot activate it. (SA केवल व्यवस्थापकों के लिए है.)');
+    }else{
+      aiAdd('bot', '⚠ ' + escapeHtml(e.message), null, null, null, true);
+    }
+  }
+  aiBusy = false;
+}
+
+function renderSaIdentityOptions(options){
+  const root = $('#saIdentityOptions'); if(!root) return;
+  root.innerHTML = '';
+  $('#saPasswordStep').classList.add('hidden');
+  root.classList.remove('hidden');
+  saHideError();
+  options.forEach(o=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.style.cssText = 'display:flex;align-items:center;gap:9px;padding:10px;border:1px solid #ddd6fe;border-radius:10px;background:#faf5ff;cursor:pointer;text-align:left';
+    b.innerHTML = '<span style="width:32px;height:32px;border-radius:50%;background:#5b21b6;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;flex:none">' + escapeHtml(String(o.name||'?')[0].toUpperCase()) + '</span>'
+      + '<span><b style="font-size:13px">' + escapeHtml(o.name||'') + '</b><br><small style="color:var(--muted);font-size:10.5px">Administrator</small></span>';
+    b.onclick = () => selectSaIdentity(o.id, o.name);
+    root.appendChild(b);
+  });
+}
+
+function selectSaIdentity(id, name){
+  _saIdentity = id;
+  $('#saIdentityOptions').classList.add('hidden');
+  $('#saPasswordStep').classList.remove('hidden');
+  $('#saSelectedName').textContent = name || 'Administrator';
+  $('#saSelectedAvatar').textContent = String(name||'?')[0].toUpperCase();
+  const inp = $('#saIdentityPassword');
+  if(inp){ inp.value = ''; setTimeout(()=>inp.focus(), 50); }
+  saHideError();
+}
+
+function backToSaIdentities(){
+  $('#saPasswordStep').classList.add('hidden');
+  $('#saIdentityOptions').classList.remove('hidden');
+  const inp = $('#saIdentityPassword'); if(inp) inp.value = '';
+  saHideError();
+}
+
+function saShowError(msg){ const e = $('#saActivationError'); if(e){ e.textContent = msg; e.classList.remove('hidden'); } }
+function saHideError(){ const e = $('#saActivationError'); if(e){ e.textContent=''; e.classList.add('hidden'); } }
+function closeSaActivation(){ $('#saActivationModal').classList.add('hidden'); const inp = $('#saIdentityPassword'); if(inp) inp.value = ''; saHideError(); }
+
+async function submitSaPassword(){
+  const inp = $('#saIdentityPassword'), btn = $('#saPasswordSubmit');
+  const password = inp ? inp.value : '';
+  if(!_saIdentity || !password){ saShowError('Enter the password for the selected administrator.'); return; }
+  if(btn) btn.disabled = true;
+  try{
+    const d = await api('/api/admin/sa/activate', {method:'POST', body: JSON.stringify({code: _saCode, administrator: _saIdentity, password: password})});
+    if(inp) inp.value = '';
+    saSessionId = d.session_id; saAdminLabel = d.admin;
+    closeSaActivation();
+    saSetHeader(true);
+    aiAdd('bot', '🛡️ <b>SA activated as ' + escapeHtml(saAdminLabel) + '.</b> I can now plan and coordinate work across every portal feature. Try:<br>'
+      + '• <i>verify record &lt;id&gt;</i> · <i>reject record &lt;id&gt; because …</i> · <i>delete record &lt;id&gt;</i><br>'
+      + '• <i>assign record &lt;id&gt; to verification officer</i><br>'
+      + '• any normal question — loans, court cases, fraud risk, PDFs, stats…<br>'
+      + 'Consequential actions still stop at the 📋 <b>AI Approval Center</b>, and everything is logged in my 📊 SA Report. Session auto-expires in 30 minutes.',
+      null, null, null, true);
+  }catch(e){
+    if(inp) inp.value = '';
+    saShowError(e.message || 'SA activation failed.');
+  }
+  if(btn) btn.disabled = false;
+}
+
+async function exitSaMode(){
+  if(!saSessionId) return;
+  try{ await api('/api/admin/sa/end', {method:'POST', body: JSON.stringify({session_id: saSessionId})}); }catch(_){}
+  saSessionId = null; saAdminLabel = null;
+  saSetHeader(false);
+  closeSaReport();
+  aiAdd('bot', '⏻ SA session ended — normal AI Assistant mode restored. (SA सत्र समाप्त.)');
+}
+
+async function showSaReport(){
+  if(!saSessionId) return;
+  try{
+    const d = await api('/api/admin/sa/report?session_id=' + encodeURIComponent(saSessionId));
+    const admin = $('#saReportAdmin'); if(admin) admin.textContent = ' · ' + (d.admin || '');
+    const root = $('#saReportList'); if(!root) return;
+    const evs = d.events || [];
+    root.innerHTML = evs.length ? evs.map(ev=>{
+      const dt = new Date((ev.ts||0)*1000).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+      return '<div style="padding:7px 8px;border-bottom:1px dashed #e9d5ff;font-size:12px;line-height:1.5">'
+        + '<b style="color:#5b21b6">' + escapeHtml(ev.event_type||'') + '</b> — ' + escapeHtml(ev.detail||'')
+        + ' <span class="muted" style="font-size:10.5px">· ' + dt + '</span></div>';
+    }).join('') : '<div class="muted" style="font-size:12px;padding:8px">No events in this session yet.</div>';
+    $('#saReportPanel').classList.remove('hidden');
+  }catch(e){
+    aiAdd('bot', '⚠ ' + escapeHtml(e.message), null, null, null, true);
+  }
+}
+function closeSaReport(){ const p = $('#saReportPanel'); if(p) p.classList.add('hidden'); }
 
 (async function boot(){
   initLang();

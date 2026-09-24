@@ -14,9 +14,12 @@ def http(BASE, method, path, tok=None, data=None, raw=False, headers=None,
     """urllib request with 429 back-off. Returns (status, parsed_or_bytes)."""
     status, parsed = 0, None
     for _attempt in range(retries):
-        body = json.dumps(data).encode() if data is not None else None
+        if isinstance(data, (bytes, bytearray)):
+            body = bytes(data)  # already-encoded payload (e.g. multipart upload)
+        else:
+            body = json.dumps(data).encode() if data is not None else None
         h = dict(headers or {})
-        if data is not None:
+        if data is not None and not isinstance(data, (bytes, bytearray)):
             h.setdefault("Content-Type", "application/json")
         if tok:
             h.setdefault("Authorization", "Bearer " + tok)

@@ -18,7 +18,7 @@ import json
 import re
 import time
 
-from . import ai_support, common, store
+from . import ai_support, common, risk, store
 
 # "show more" state: last search results per user (in-memory, resets on restart)
 _last_results = {}
@@ -32,12 +32,15 @@ SMALLTALK = [
      "Hello! 👋 I'm the offline AI assistant for this Land Records Portal. "
      "Ask me about:\n"
      "• How any part of the website works — upload, verification, queue, "
-     "comparison, consistency check, dashboard, AI features, audit log, users\n"
+     "comparison, consistency check, dashboard, audit log\n"
+     "• The land modules — 🏦 loans/encumbrance, ⚖️ court cases, 🛡️ fraud risk, "
+     "📄 certified/EC PDFs + QR, 💾 backup, 🗺️ real map & boundaries, 📝 mutations\n"
      "• Finding documents — 'find khatauni of Ramesh', 'show pending records', "
-     "'which document has survey 45/2?'\n"
-     "• Record details — 'who owns survey 312?', 'details of document #abc', "
-     "'show the latest documents'\n"
-     "Try one now, or tap a quick chip below."),
+     "'which records have an active loan?', 'which records are risky?'\n"
+     "• Record details — 'who owns survey 312?', 'risk of <record id>', "
+     "'details of document #abc'\n"
+     "Admins: type 'SA' for Superior Administrator mode. Try a question now, or "
+     "tap a quick chip below."),
 
     (r"^(how are you|kaise ho|kaise hain|kaisi ho)\b",
      "I'm running fine — fully local and offline. How can I help you with the "
@@ -427,6 +430,139 @@ sabhi all number no doc how what where latest newest recent
 """.split())
 
 
+# --------------------------------------------------------------------------
+# 1b) Feature knowledge — the newer modules (asked as their own section so
+#     specific topics answer before the older generic help list)
+# --------------------------------------------------------------------------
+HELP_FEATURES = [
+    # --- loans / encumbrance ---
+    (r"\b(encumbrance|encumbered|loan|loans|mortgage|bandhak|bakaya|ऋण|बंधक|रिन|ec report|ec certificate|encumbrance certificate)\b",
+     "🏦 LOAN / ENCUMBRANCE module (added on every record's detail view):\n"
+     "• What it is — loans (mortgages/bandhak) registered against a survey number: "
+     "creditor (bank), amount, mortgage date, settlement date, status active/settled\n"
+     "• Where — open any record → the '🏦 Encumbrance / Loan Check' panel loads "
+     "automatically; verifier+ can Add a loan or Settle one (settling = recording the "
+     "bank's NOC/release)\n"
+     "• Why it matters — an ACTIVE loan flags the land 🛡️ 'encumbered', stamps a ⚠ "
+     "warning into any mutation approval of that land, and blocks a clean "
+     "Encumbrance Certificate\n"
+     "• Matching is land-based: same survey number + village (a loan saved without a "
+     "village applies to the whole survey number)\n"
+     "• Paper proof — '⬇ EC Report (13 yrs, PDF+QR)' downloads an Encumbrance-"
+     "Certificate-style PDF\n"
+     "Try: 'which records have an active loan?' or 'how many loans are active?'"),
+
+    # --- court cases / litigation ---
+    (r"\b(court|litigation|mukadma|मुकदमा|मुकदमा|vakalat|stay order|पटका|case (on|against) (the |this |a )?(land|record|survey|plot))\b",
+     "⚖️ COURT CASE / LITIGATION tracking:\n"
+     "• What it is — court cases tied to a survey number: case number, court name, "
+     "parties, filed date, status (active / decided / withdrawn / settled)\n"
+     "• Where — open any record → the '⚖️ Court Case Check' panel; verifier+ can "
+     "register a new case or Close an active one with its outcome\n"
+     "• Cascade when a case closes — the risk flag flips from ACTIVE_LITIGATION "
+     "(critical) to CLOSED_LITIGATION_ON_RECORD (info), any 🟠 litigation banner "
+     "clears, and the event is written to the audit trail; a transfer that happened "
+     "DURING the case keeps its TRANSFER_DURING_LITIGATION flag by design\n"
+     "• Active litigation has the same weight as an active loan: mutation approvals "
+     "get stamped '⚠ APPROVED WITH ACTIVE LITIGATION…' and the verdict chip shows "
+     "litigation until it is resolved\n"
+     "Try: 'how many court cases are active?' or 'which records have a court case?'"),
+
+    # --- fraud risk engine ---
+    (r"\b(fraud|risk|dhokha|धोखा|forgery|forged|fake|suspicious|land fraud|欺诈)\b",
+     "🛡️ FRAUD RISK engine (rule-based, local):\n"
+     "• Open any record → the '🛡️ Risk' panel computes flags for the WHOLE LAND "
+     "(all records + loans + mutations + court cases on that survey number)\n"
+     "• Flags detected: ACTIVE_ENCUMBRANCE, SALE_DURING_ENCUMBRANCE, OWNER_CONFLICT_YEAR "
+     "(same year, different owners), OWNER_CHANGE_NO_MUTATION (owner renamed without a "
+     "mutation application — even across Hindi/English spellings), AREA_JUMP, "
+     "REJECTED_CONFLICT_COPY, CHAIN_GAP, ACTIVE_LITIGATION, TRANSFER_DURING_LITIGATION\n"
+     "• Verdict order: 🔴 encumbered → 🟠 litigation → 🔴 risk → 🟡 review → 🟢 clear\n"
+     "• Every flag shows its evidence (which loan, case, deed or record caused it) — "
+     "it is explainable AI, not a black box\n"
+     "• Demo tip: upload a second document for the same survey number with a "
+     "different owner and watch the conflict flags appear\n"
+     "Try: 'which records are risky?' or 'risk of <record id>'"),
+
+    # --- PDFs / certificates ---
+    (r"\b(certified (copy|pdf)|certificate|pramanit|प्रमाणित|qr code|qr\b|download .*pdf|pdf .*download|ec pdf|village sheet pdf|report pdf)\b",
+     "📄 The portal generates 3 authenticated PDFs, all with a QR code:\n"
+     "1. Certified Copy — open a VERIFIED record → '⬇ Certified PDF': the full "
+     "extracted record with a certification hash; the QR opens a public check page "
+     "that proves the PDF was not altered\n"
+     "2. EC Report — '⬇ EC Report (13 yrs, PDF+QR)': Encumbrance-Certificate style — "
+     "'free of encumbrances in the last 13 years' or the loans found (internal risk "
+     "report; the conclusive EC is issued by the Sub-Registrar, as stated on it)\n"
+     "3. Village Sheet PDF — 🗺️ Real Map tab → pick a village → the village-sheet view "
+     "lists every plot with owner/area and exports as PDF\n"
+     "Land-history summary PDFs are on the History panel of each record. Ask: "
+     "'how do I verify a certificate QR?' to learn the public-check flow."),
+
+    # --- backup & restore ---
+    (r"\b(backup|restore|export (all |the )?data|import (data|backup)|database backup|data (safety|safe))\b",
+     "💾 BACKUP & RESTORE (Admin → ⚙️ Account tab → Backup card):\n"
+     "• '⬇ Create backup' downloads ONE zip: landrec.db (every record, user, loan, "
+     "case, audit entry) + all uploaded scans + a manifest.json (version, counts, "
+     "created-by) — audit-logged\n"
+     "• '⬆ Restore from backup' uploads that zip on any machine: it validates the "
+     "zip and the SQLite database, KEEPS a safety copy of the current state in "
+     "data/backup_before_restore_<timestamp>/, then swaps the data in\n"
+     "Use it for judge demos (prepare data → restore it live), machine migration, or "
+     "disaster recovery."),
+
+    # --- real map / gis / digitize ---
+    (r"\b(real map|map tab|naksha|नक्शा|gis|boundary|boundaries|plot map|digitize|coordinates|satellite|topo|khasra map|bhu.?naksha)\b",
+     "🗺️ REAL MAP tab:\n"
+     "• Every record with a 📍 location appears as a marker; toggle 'Show: Selected / "
+     "All records'; pick a marker row to focus it\n"
+     "• Layers: OpenStreetMap (with automatic mirror fallbacks) → Esri satellite → "
+     "Carto → Topo — if one tile server is unreachable it fails over\n"
+     "• Village sheet: pick a village → every plot listed (survey, owner, area, "
+     "status) with a PDF export\n"
+     "• Boundary tools: drop a pin on a record, or draw the plot boundary polygon; "
+     "the point-in-polygon check verifies a record's pin lies inside its own boundary\n"
+     "• Digitize coordinates: a khatauni shows corner coordinates? Enter them in the "
+     "Digitize panel and the plot polygon is generated from them\n"
+     "Try: 'where is the map?' or open 🗺️ Real Map and press the village selector."),
+
+    # --- mutation workflow ---
+    (r"\b(mutation (process|workflow|status|apply|kya)|namantaran|ferfar|दाखिल ?खारिज|owner(ship)? (change|transfer) (process|kaise))\b",
+     "📝 MUTATION (ownership transfer / नामांतरण) workflow:\n"
+     "• Apply from the Mutations tab with the deed number/date; statuses go "
+     "received → under_review → verified (or rejected)\n"
+     "• SAFETY GATE: approving a mutation on a land with an active loan or active "
+     "court case still lets the officer proceed, but the approval note is "
+     "auto-stamped '⚠ APPROVED WITH ACTIVE ENCUMBRANCE/LITIGATION…' and a special "
+     "audit event is written — officer responsibility stays explicit\n"
+     "• The risk engine cross-reads mutations: a sale dated during a live loan → "
+     "SALE_DURING_ENCUMBRANCE; an owner renamed in records without a mutation → "
+     "OWNER_CHANGE_NO_MUTATION\n"
+     "Try: 'how many mutations are pending?'"),
+
+    # --- per-record audit trail (new) ---
+    (r"\b(per.?record audit|audit trail|record( 's| s)? audit|history of (this |a )?record|kaun kaun (se )?action|who (verified|changed|touched)|किसने (सत्यापित|बदला))\b",
+     "📜 AUDIT TRAIL — two levels:\n"
+     "1. Per record: open any record → '📜 Audit Trail' panel (next to History) — "
+     "every action ON that record, oldest first: who uploaded it, draft saves, "
+     "verification, returns/rejections with notes, mutation gate stamps, PDF "
+     "downloads — each row with the tamper-evident hash prefix\n"
+     "2. Whole system: the 🔐 Audit Log tab (admin) — the global hash-chained log "
+     "with an integrity self-check ('✓ audit chain intact')\n"
+     "Deleting a record never deletes its audit rows — accountability survives."),
+
+    # --- SA mode itself ---
+    (r"\b(superior admin|sa mode|sa feature|hidden mode|activate sa|what is sa)\b",
+     "🛡️ SA = Superior Administrator mode — the hidden secure layer of this assistant "
+     "(admins only). Type 'SA' here → pick an administrator identity → re-enter that "
+     "admin's password (checked server-side only). In SA mode I can plan and "
+     "coordinate across features: 'verify record <id>', 'reject record <id> because "
+     "…', 'delete record <id>', 'assign record <id> to verification officer'. "
+     "Consequential actions still stop at the 📋 AI Approval Center, and everything "
+     "I do is logged in the 📊 SA Activity Report. Sessions expire after 30 minutes "
+     "or with 'exit SA'."),
+]
+
+
 def _fields_of(d):
     return d.get("fields") or {}
 
@@ -813,6 +949,224 @@ def _show_more(user_id):
             "results": [dict(_result_row(d), matched=matched) for (score, d, matched) in top]}
 
 
+RISK_TERMS = (r"\b(loan|loans|encumbran[a-z]*|mortgage|bandhak|ऋण|court|courts|litigation|mukadma|मुकदमा|"
+              r"risk|risky|fraud|fraudulent|dhokha|धोखा|suspicious)\b")
+LOAN_TERMS = r"(loan|loans|encumbran[a-z]*|mortgage|bandhak|ऋण)"
+CASE_TERMS = r"(court|courts|litigation|mukadma|मुकदमा|case|cases)"
+
+
+def _norm_s(v):
+    return " ".join(str(v or "").strip().lower().split())
+
+
+def _land_flags(survey, village):
+    """Full risk computation for one land (records + loans + mutations + cases)."""
+    encs = store.list_encumbrances(survey, village)
+    cases = store.list_court_cases(survey, village)
+    muts = [m for m in store.list_mutations(limit=300)
+            if _norm_s(m.get("survey_number")) == _norm_s(survey)
+            and (not village or _norm_s(m.get("village")) == _norm_s(village)
+                 or not m.get("village"))]
+    hist = store.record_history(survey, village)
+    flags = risk.land_risk(hist, encs, muts, cases)
+    active = sum(1 for e in encs if e.get("status") == "active")
+    active_cases = sum(1 for c in cases if c.get("status") == "active")
+    if active:
+        verdict = "encumbered"
+    elif active_cases:
+        verdict = "litigation"
+    elif any(f["severity"] == "critical" for f in flags):
+        verdict = "risk"
+    elif flags:
+        verdict = "review"
+    else:
+        verdict = "clear"
+    return {"encs": encs, "cases": cases, "muts": muts, "flags": flags,
+            "active": active, "active_cases": active_cases, "verdict": verdict}
+
+
+_VERDICT_EMOJI = {"encumbered": "🔴 ENCUMBERED", "litigation": "🟠 LITIGATION",
+                  "risk": "🔴 RISK", "review": "🟡 REVIEW", "clear": "🟢 CLEAR",
+                  "no_survey": "⚪ NO SURVEY NUMBER"}
+
+
+def _doc_risk(did):
+    doc = store.get_document(did)
+    if not doc:
+        return {"type": "search", "results": [],
+                "answer": "I couldn't find document #%s. Check the 12-character ID in the Records tab." % did}
+    f = json.loads(doc.get("extracted_json") or "{}")
+    v = lambda k: (f.get(k) or {}).get("value", "") if isinstance(f.get(k), dict) else ""
+    survey, village = v("survey_number"), v("village")
+    if not survey:
+        return {"type": "search", "results": [_result_row(doc)],
+                "answer": ("Record #%s has no survey number extracted, so I cannot tie it to a "
+                           "land for loan/court/risk checks. Correct the fields in the record "
+                           "detail and verify it first.") % did}
+    lz = _land_flags(survey, village)
+    lines = ["🛡️ Land risk — record #%s · survey %s · %s" % (did, survey, village or "—"),
+             "Verdict: %s" % _VERDICT_EMOJI[lz["verdict"]]]
+    if lz["encs"]:
+        act = [e for e in lz["encs"] if e.get("status") == "active"]
+        lines.append("🏦 Loans: %d registered (%d active)" % (len(lz["encs"]), len(act)))
+        for e in (act or lz["encs"])[:3]:
+            lines.append("   · %s — ₹%s — %s — status %s" % (
+                e.get("creditor") or "creditor",
+                "{:,.0f}".format(e["amount"]) if e.get("amount") else "—",
+                e.get("mortgage_date") or "date ?", e.get("status")))
+    else:
+        lines.append("🏦 Loans: none registered on this land")
+    if lz["cases"]:
+        act = [c for c in lz["cases"] if c.get("status") == "active"]
+        lines.append("⚖️ Court cases: %d on record (%d active)" % (len(lz["cases"]), len(act)))
+        for cs in (act or lz["cases"])[:3]:
+            lines.append("   · %s — %s — filed %s — %s" % (
+                cs.get("case_number") or "case", cs.get("court_name") or "court",
+                cs.get("filed_date") or "?", cs.get("status")))
+    else:
+        lines.append("⚖️ Court cases: none on this land")
+    if lz["flags"]:
+        lines.append("🚩 Flags (%d):" % len(lz["flags"]))
+        for fl in lz["flags"][:5]:
+            lines.append("   · [%s] %s" % (fl["severity"].upper(), fl["title"]))
+    else:
+        lines.append("🚩 Flags: none — this land is clean")
+    lines.append("Open the record → 🏦 / ⚖️ / 🛡️ panels for full evidence, or download the "
+                 "'⬇ EC Report (PDF+QR)'.")
+    row = _result_row(doc)
+    row["matched"] = ["land risk query"]
+    return {"type": "search", "answer": "\n".join(lines), "results": [row]}
+
+
+def _risk_lands(qn, want_rows=True):
+    """Screen every land in the database and list the ones caught by the
+    loan / court-case / risk focus of the question."""
+    focus_loan = re.search(LOAN_TERMS, qn)
+    focus_case = re.search(CASE_TERMS, qn) and not re.search(r"\b(case|cases) (study|s)\b", qn)
+    docs = store.list_documents(limit=400)
+    lands = {}
+    for d in docs:
+        f = _fields_of(d)
+        survey = _g(f, "survey_number").strip()
+        if not survey:
+            continue
+        key = (_norm_s(survey), _norm_s(_g(f, "village")))
+        lands.setdefault(key, []).append(d)
+    if not lands:
+        return {"type": "search", "results": [],
+                "answer": "No records with a survey number yet — risk screening needs "
+                          "records that carry a survey/khasra number."}
+    hits, clear = [], 0
+    for (sk, vk), ds in lands.items():
+        survey = _g(_fields_of(ds[0]), "survey_number").strip()
+        village = _g(_fields_of(ds[0]), "village").strip()
+        lz = _land_flags(survey, village)
+        ok = False
+        if focus_loan and lz["active"]:
+            ok = True
+        if focus_case and lz["active_cases"]:
+            ok = True
+        if not focus_loan and not focus_case and lz["verdict"] in ("encumbered", "litigation", "risk"):
+            ok = True
+        if lz["verdict"] == "clear":
+            clear += 1
+        if not ok:
+            continue
+        rep = next((d for d in ds if d.get("status") in ("verified", "auto_approved")), ds[0])
+        why = []
+        if lz["active"]:
+            e = next(e for e in lz["encs"] if e.get("status") == "active")
+            why.append("active loan: %s" % (e.get("creditor") or "creditor"))
+        if lz["active_cases"]:
+            cs = next(c for c in lz["cases"] if c.get("status") == "active")
+            why.append("active case: %s" % (cs.get("case_number") or "case"))
+        why.extend(f["title"] for f in lz["flags"][:2] if f["code"] not in ("ACTIVE_ENCUMBRANCE", "ACTIVE_LITIGATION"))
+        hits.append((lz, rep, "%s · survey %s · %s — %s"
+                     % (_VERDICT_EMOJI[lz["verdict"]], survey, village or "—",
+                        "; ".join(why[:3]) or "flagged")))
+    if not hits:
+        return {"type": "search", "results": [],
+                "answer": "Good news 🟢 — no land in the database matches that concern "
+                          "(%d land(s) screened, all clear)." % len(lands)}
+    hits.sort(key=lambda h: 0 if h[0]["verdict"] in ("encumbered", "risk") else 1)
+    lines = ["I screened %d land(s) in the database — %d need attention, %d clear:"
+             % (len(lands), len(hits), clear)]
+    for lz, rep, line in hits[:6]:
+        lines.append("· #%s — %s" % (rep["id"], line))
+    if len(hits) > 6:
+        lines.append("…and %d more. Ask 'risk of <record id>' for any of them." % (len(hits) - 6))
+    lines.append("Open a record below to see the 🏦/⚖️/🛡️ evidence panels.")
+    rows = []
+    for lz, rep, _ in hits[:5]:
+        r = _result_row(rep)
+        r["matched"] = ["land risk: " + lz["verdict"]]
+        rows.append(r)
+    return {"type": "search", "answer": "\n".join(lines), "results": rows}
+
+
+def _stats_features(qn):
+    """Statistics for the newer modules (loans, cases, mutations, tasks,
+    proposals, risk) — None when the question is not about them."""
+    if re.search(LOAN_TERMS, qn):
+        encs = store.all_encumbrances()
+        act = [e for e in encs if e.get("status") == "active"]
+        lines = ["🏦 %d loan(s)/encumbrance(s) registered — %d ACTIVE, %d settled."
+                 % (len(encs), len(act), len(encs) - len(act))]
+        for e in act[:4]:
+            lines.append("· ACTIVE: %s — ₹%s on survey %s %s (since %s)" % (
+                e.get("creditor") or "creditor",
+                "{:,.0f}".format(e["amount"]) if e.get("amount") else "—",
+                e.get("survey_number") or "?", ("(" + e["village"] + ")") if e.get("village") else "",
+                e.get("mortgage_date") or "?"))
+        lines.append("An active loan makes its land 🔴 encumbered — ask 'which records have an active loan?'.")
+        return {"type": "stats", "results": [], "answer": "\n".join(lines)}
+    if re.search(CASE_TERMS, qn):
+        cases = store.all_court_cases()
+        act = [c for c in cases if c.get("status") == "active"]
+        by = {}
+        for c in cases:
+            by[c.get("status")] = by.get(c.get("status"), 0) + 1
+        lines = ["⚖️ %d court case(s) on record — %s." % (
+            len(cases), " · ".join("%d %s" % (n, s) for s, n in sorted(by.items())) or "none")]
+        for c in act[:4]:
+            lines.append("· ACTIVE: %s — %s, survey %s, filed %s" % (
+                c.get("case_number") or "case", c.get("court_name") or "court",
+                c.get("survey_number") or "?", c.get("filed_date") or "?"))
+        lines.append("An active case makes its land 🟠 litigation — ask 'which records have a court case?'.")
+        return {"type": "stats", "results": [], "answer": "\n".join(lines)}
+    if re.search(r"mutation|namantaran|ferfar|ownership transfer", qn):
+        m = store.mutation_counts()
+        return {"type": "stats", "results": [],
+                "answer": "📝 Mutations: %d received, %d under review, %d approved/verified, %d rejected."
+                          % (m.get("received", 0), m.get("under_review", 0),
+                             m.get("verified", 0), m.get("rejected", 0))}
+    if re.search(r"task|assignment|delegate", qn):
+        seen, open_t = set(), 0
+        for r in ("operator", "verifier", "admin"):
+            for t in store.list_tasks(r):
+                if t["id"] in seen:
+                    continue
+                seen.add(t["id"])
+                if str(t.get("status", "")).upper() not in ("COMPLETED", "CANCELLED"):
+                    open_t += 1
+        return {"type": "stats", "results": [],
+                "answer": "🤖 AI Tasks: %d assigned so far, %d still open (check the '🤖 AI Tasks' "
+                          "inbox, bottom-right)." % (len(seen), open_t)}
+    if re.search(r"proposal|approval center|pending approval", qn):
+        pend = store.list_proposals(status="PENDING")
+        return {"type": "stats", "results": [],
+                "answer": "📋 AI Approval Center: %d proposal(s) waiting for a human decision."
+                          % len(pend)}
+    if re.search(r"risk|fraud|flag|suspicious|encumbered|litigation", qn):
+        r = _risk_lands(qn.replace("how many", "show").replace("kitne", "show"),
+                        want_rows=False)
+        text = r["answer"]
+        first = text.split("\n")[0]
+        return {"type": "stats", "results": r.get("results", []),
+                "answer": "🛡️ Risk screening — " + first + "\n(full list: ask 'which records are risky?')"}
+    return None
+
+
 def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> dict:
     qn = " ".join((q or "").lower().split())
     if not qn:
@@ -830,9 +1184,11 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
             if re.search(pat, qn):
                 return {"type": "chat", "results": [], "answer": ans}
 
-    # 1) stats questions
+    # 1) stats questions — newer modules first (loans/court cases/mutations/
+    #    tasks/proposals/risk), then the classic record counters
     if re.search(STATS_TRIGGERS, qn):
-        return _stats(qn)
+        r = _stats_features(qn)
+        return r if r else _stats(qn)
 
     # 1.5) analytics (top districts/villages, common types, low-confidence list)
     r = _analytics(qn)
@@ -867,6 +1223,8 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
             return _explain_doc(did)
         if re.search(r"\b(open|khole|kholo|खोल|विर)\b", qn):
             return _action_open(did)
+        if re.search(RISK_TERMS, qn) or re.search(CASE_TERMS, qn):
+            return _doc_risk(did)
         r = _doc_by_id(did)
         if r["results"]:
             return r
@@ -881,12 +1239,24 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
     if r:
         return r
 
+    # 3.8) targeted precedence fixes vs the terse "where is X" map:
+    #      'audit trail of a record' deserves the per-record answer (not the
+    #      global Audit Log pointer), and backup/restore the full answer.
+    if re.search(r"audit trail|per.?record audit|record('s|s)? audit|backup|restore", qn):
+        for pat, ans in HELP_FEATURES:
+            if re.search(pat, qn):
+                return {"type": "help", "results": [], "answer": ans}
+
     # 4) "where is X" quick map
     if re.search(r"\bwhere (is|do i|can i|to|from|shall i)\b", qn):
         for pat, place in WHERE:
             if re.search(pat, qn):
                 return {"type": "help", "results": [],
                         "answer": "You'll find it in %s." % place}
+
+    # 4.5) land-level screening: "show records with a loan / court case / risk / fraud"
+    if re.search(RISK_TERMS, qn) and re.search(SEARCH_TRIGGERS, qn):
+        return _risk_lands(qn)
 
     # 5) explicit document search / document questions
     if re.search(SEARCH_TRIGGERS, qn) or re.search(r"\b\d{1,4}(?:[/.]\d{1,4})?\b", qn):
@@ -901,7 +1271,10 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
         if re.search(SEARCH_TRIGGERS, qn):
             return r  # they explicitly asked to find something - report the miss
 
-    # 6) website help
+    # 6) website help — newest features first
+    for pat, ans in HELP_FEATURES:
+        if re.search(pat, qn):
+            return {"type": "help", "results": [], "answer": ans}
     for pat, ans in HELP:
         if ans is None:
             continue
@@ -917,10 +1290,11 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
 
     return {"type": "unknown", "results": [],
             "answer": "I couldn't match that to a website topic or a document search. "
-                      "Try: 'How does verification work?', 'What is this website?', "
-                      "'Find khatauni of <name>', 'Show pending documents', "
-                      "'Which record has survey <no>?', 'How many verified records?', "
-                      "'Top districts', 'Explain document <id>', 'Compare <id> and <id>', "
+                      "Try: 'How does verification work?', 'What is the encumbrance module?', "
+                      "'What do court-case statuses mean?', 'How does fraud risk work?', "
+                      "'Which records are risky?', 'How many loans are active?', "
+                      "'Find khatauni of <name>', 'Risk of <record id>', "
+                      "'Compare <id> and <id>', 'What is SA mode?' — "
                       "or 'Show more' after a search."}
 
 
@@ -949,6 +1323,17 @@ def briefing(user_id=None, role=None):
                  % (sla.get("pending", 0), sla.get("overdue_30d", 0)))
     lines.append("📝 MUTATIONS: %d received · %d under review · %d approved"
                  % (mut.get("received", 0), mut.get("under_review", 0), mut.get("verified", 0)))
+    try:
+        encs = store.all_encumbrances()
+        act_enc = sum(1 for e in encs if e.get("status") == "active")
+        if encs:
+            lines.append("🏦 LOANS: %d registered · %d ACTIVE (lands encumbered)" % (len(encs), act_enc))
+        cases = store.all_court_cases()
+        act_cs = sum(1 for c in cases if c.get("status") == "active")
+        if cases:
+            lines.append("⚖️ COURT CASES: %d on record · %d ACTIVE (lands in litigation)" % (len(cases), act_cs))
+    except Exception:  # noqa: BLE001
+        pass
     avg = stats.get("avg_ocr_confidence")
     if avg:
         lines.append("🔤 OCR quality: average confidence %.1f%% across all records" % avg)
