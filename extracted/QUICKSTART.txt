@@ -3,6 +3,29 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.10.1 (24-Sep-2026) — SA SESSION RULES REFINED
+### 1) Non-admins get a clear "Not eligible" instead of silence
+When an operator/verifier/viewer types `SA` into the 🤖 assistant, it now
+answers immediately (no modal, no server round-trip):
+  "🔒 Not eligible. SA (Superior Administrator) mode is strictly for admin
+   accounts (SA केवल व्यवस्थापक खातों के लिए है). Your current role is …"
+The admin-only API gates (403/401) stay in force behind the UI.
+### 2) SA no longer auto-expires after 30 minutes — it ends with the admin
+Per requirement, an SA session now lasts until ANY of:
+  * the admin types `exit SA` (or presses ⏻ End SA)
+  * the admin LOGS OUT — logout ends every SA session of that user,
+    server-side (sa_admin.end_sessions_for_user) AND clears the header
+    client-side, so an elevated mode can never outlive its login session
+  * the app restarts (sessions remain memory-only)
+activate's response advertises this: {"expires_at": null,
+"policy": "until logout / exit SA / app restart"}.
+### Tests
+SA suite 47/47 (new: no-TTL policy, pre-logout query 200, logout 200,
+post-logout query 401, fresh session cycle), fullpage sim 44/44 (new:
+not-eligible branch, no 30-min text, client+server logout hooks,
+all-4 SA endpoints admin-gated), assistant 28/28, audit 18/18,
+regression 18/18.
+
 ## WHAT'S NEW IN v3.10.0 (24-Sep-2026) — SA MODE + SMARTER ASSISTANT + PER-RECORD AUDIT TRAIL
 ### 1) 🛡️ SA — Superior Administrator mode (ported from the reference portal)
 A hidden secure layer inside the offline 🤖 AI Assistant — admins only:

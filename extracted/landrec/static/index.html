@@ -2582,6 +2582,12 @@ function roleLabel(r){
 }
 
 function doLogout(quiet){
+  if(saSessionId){
+    // never carry SA across a logout — end it quietly (the server also ends
+    // this user's SA sessions inside /api/auth/logout)
+    api('/api/admin/sa/end',{method:'POST', body: JSON.stringify({session_id: saSessionId})}).catch(()=>{});
+    saSessionId = null; saAdminLabel = null; saSetHeader(false); closeSaReport();
+  }
   if(token && !quiet){ api('/api/auth/logout',{method:'POST'}).catch(()=>{}); }
   store_.removeItem('lrtoken'); token=null; me=null; showAuth();
 }
@@ -6663,6 +6669,13 @@ async function aiSend(q){
   if(saM){
     if(inp) inp.value = '';
     aiAdd('me', escapeHtml(q));
+    // Only admin accounts are eligible for SA — tell everyone else clearly.
+    if(!me || me.role !== 'admin'){
+      aiAdd('bot', '🔒 <b>Not eligible.</b> SA (Superior Administrator) mode is strictly for <b>admin</b> accounts '
+        + '(SA केवल व्यवस्थापक खातों के लिए है). Your current role is <b>' + escapeHtml((me && me.role) || 'unknown')
+        + '</b>. Log in as an admin and type SA again.');
+      return;
+    }
     if(saSessionId){
       aiAdd('bot', '🛡️ SA mode is already active as <b>' + escapeHtml(saAdminLabel || 'SA') + '</b>. Ask me anything — or press ⏻ End SA.', null, null, null, true);
       return;
@@ -6797,7 +6810,8 @@ async function submitSaPassword(){
       + '• <i>verify record &lt;id&gt;</i> · <i>reject record &lt;id&gt; because …</i> · <i>delete record &lt;id&gt;</i><br>'
       + '• <i>assign record &lt;id&gt; to verification officer</i><br>'
       + '• any normal question — loans, court cases, fraud risk, PDFs, stats…<br>'
-      + 'Consequential actions still stop at the 📋 <b>AI Approval Center</b>, and everything is logged in my 📊 SA Report. Session auto-expires in 30 minutes.',
+      + 'Consequential actions still stop at the 📋 <b>AI Approval Center</b>, and everything is logged in my 📊 SA Report. '
+      + 'The session stays active until you type <b>exit SA</b> / press ⏻ End SA — or log out (logout always closes SA).',
       null, null, null, true);
   }catch(e){
     if(inp) inp.value = '';

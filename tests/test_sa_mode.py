@@ -68,6 +68,8 @@ s, d = req("POST", "/api/admin/sa/activate", ADMIN,
 check("SA session opens", s == 200 and d.get("session_id"), (s, str(d)[:160]))
 SID = d.get("session_id", "")
 check("session carries admin label", bool(d.get("admin")), str(d)[:120])
+check("v3.10.1: no 30-min expiry (session lasts until logout/exit)",
+      d.get("expires_at") is None and "logout" in (d.get("policy") or ""), str(d)[:160])
 
 
 def saq(query):
@@ -174,6 +176,21 @@ check("global audit logs sa_activated", any(r.get("action") == "sa_activated" fo
 # ---------- end of session ----------
 s, d = req("POST", "/api/admin/sa/end", OP, {"session_id": SID})
 check("operator cannot end an SA session", s == 403, (s, str(d)[:100]))
+
+# v3.10.1: logout of the SAME admin ends their SA sessions (no 30-min TTL)
+s, d = saq("how many loans are active?  (pre-logout probe)")
+check("SA query works right before logout", s == 200, (s, str(d)[:120]))
+s, d = req("POST", "/api/auth/logout", ADMIN)
+check("the admin logs out", s == 200, (s, str(d)[:80]))
+ADMIN = login("admin@landrec.gov.in", "Admin@123")  # logout invalidated the old token
+s, d = saq("hello after logout?")
+check("logout ended the SA session (401)", s == 401, (s, str(d)[:120]))
+
+# a new session can be opened after re-login and used right up till 'end SA'
+s, d = req("POST", "/api/admin/sa/activate", ADMIN,
+           {"code": "SA", "administrator": admin_id, "password": "Admin@123"})
+SID = d.get("session_id", "")
+check("fresh SA session after re-login", s == 200 and bool(SID), (s, str(d)[:120]))
 s, d = saq("hello after end? (this query runs BEFORE end)")
 check("SA query works right before end", s == 200, (s, str(d)[:120]))
 s, d = req("POST", "/api/admin/sa/end", ADMIN, {"session_id": SID})

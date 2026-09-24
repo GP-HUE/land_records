@@ -339,6 +339,16 @@ async function main(){
   check('SA endpoints used by UI', js.includes("'/api/admin/sa/activate-options'") && js.includes("'/api/admin/sa/activate'") && js.includes("'/api/admin/sa/query'") && js.includes("'/api/admin/sa/end'") && js.includes("/api/admin/sa/report?session_id="));
   check('End-SA button + briefing button ids wired', html.includes('id="aiSaEndBtn"') && html.includes('id="aiBriefBtn"') && html.includes('id="aiTitleText"'));
 
+  // v3.10.1 — SA eligibility + session-lifetime rules
+  check('non-admin typing SA gets the not-eligible message', /me\.role !== 'admin'/.test(js) && js.includes('Not eligible'));
+  check('SA greeting no longer promises a 30-minute auto-expiry', !js.includes('auto-expires in 30 minutes'));
+  check('SA greeting states logout/session end policy', js.includes('logout always closes SA') || js.includes('exit SA'));
+  check('logout ends the SA session client-side too', /function doLogout\(quiet\)\{[\s\S]{0,900}saSessionId = null/.test(js));
+  const saSrc = fs.readFileSync(LR_ROOT + '/landrec/sa_admin.py', 'utf8');
+  check('backend: no clock TTL (SESSION_TTL = None)', saSrc.includes('SESSION_TTL = None'));
+  check('backend: logout ends the user\'s SA sessions', saSrc.includes('def end_sessions_for_user(') && fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8').includes('sa_admin.end_sessions_for_user(user["id"])'));
+  check('backend: SA endpoints all admin-gated', (fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8').match(/\/api\/admin\/sa\/[a-z-]+"[\s\S]{0,90}require_role\("admin"\)/g) || []).length >= 4);
+
   console.log('\\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }

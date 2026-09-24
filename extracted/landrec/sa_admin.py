@@ -28,9 +28,12 @@ from . import ai_assistant, auth, store
 # Activation code: "SA" by default; a deployment can change it via env
 # (then the trigger typed into the chat becomes 'SA <code>').
 SA_CODE = os.environ.get("LR_SA_CODE", "SA")
-SESSION_TTL = 30 * 60  # 30 minutes
+# No clock-based expiry per requirement: an SA session lasts until the admin
+# explicitly ends it ('exit SA' / ⏻ End SA), LOGS OUT (logout() ends all of
+# that user's SA sessions), or the app restarts (sessions are memory-only).
+SESSION_TTL = None
 
-_sessions = {}  # sid -> {user_id, name, email, created, expires}
+_sessions = {}  # sid -> {user_id, name, email, created}
 
 
 class SAError(Exception):
@@ -55,12 +58,6 @@ def activate_options(code, current_user):
                         for u in admins]}
 
 
-def _prune():
-    now = time.time()
-    for sid in [s for s, v in _sessions.items() if v["expires"] < now]:
-        _sessions.pop(sid, None)
-
-
 def activate(code, admin_id, password, current_user):
     """Step 2: re-authenticate the chosen administrator and open a session."""
     if (code or "").strip() != SA_CODE:
@@ -70,28 +67,36 @@ def activate(code, admin_id, password, current_user):
         raise SAError("Unknown administrator identity.", 400)
     if not auth.verify_password(password or "", user["salt"], user["password_hash"]):
         raise SAError("Password incorrect — SA activation refused.", 401)
-    _prune()
     sid = secrets.token_hex(12)
     _sessions[sid] = {"user_id": user["id"],
                       "name": user.get("full_name") or user["email"],
                       "email": user["email"],
-                      "created": time.time(),
-                      "expires": time.time() + SESSION_TTL}
+                      "created": time.time()}
     store.sa_event(sid, "SA_ACTIVATED",
                    "SA session opened for %s (triggered by %s)"
                    % (_sessions[sid]["name"], current_user.get("email") or ""))
     store.audit(None, current_user.get("id", ""), current_user.get("email", ""),
                 "sa_activated", "SA session opened as %s" % _sessions[sid]["name"])
+    # no expiry: the session ends on 'end SA', logout, or app restart
     return {"session_id": sid, "admin": _sessions[sid]["name"],
-            "expires_at": _sessions[sid]["expires"]}
+            "expires_at": None, "policy": "until logout / exit SA / app restart"}
 
 
 def _require(session_id):
-    _prune()
     s = _sessions.get(session_id or "")
     if not s:
-        raise SAError("SA session not found or expired — type 'SA' to activate again.", 401)
+        raise SAError("SA session not found or ended — type 'SA' to activate again.", 401)
     return s
+
+
+def end_sessions_for_user(user_id):
+    """End every SA session of this user — called from logout so an elevated
+    mode never survives the login session it belongs to."""
+    for sid in [s for s, v in _sessions.items() if v["user_id"] == user_id]:
+        store.sa_event(sid, "SA_ENDED", "admin logged out — session closed")
+        store.audit(None, user_id, _sessions[sid]["email"], "sa_ended",
+                    "SA session ended by logout")
+        _sessions.pop(sid, None)
 
 
 def end(session_id, current_user=None):

@@ -36,7 +36,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.10.0"
+APP_VERSION = "3.10.1"
 
 
 def _warmup_ocr_worker():
@@ -224,6 +224,7 @@ def me(user: dict = Depends(get_current_user)):
 @app.post("/api/auth/logout")
 def logout(response: Response, user: dict = Depends(get_current_user)):
     store.bump_token_version(user["id"])
+    sa_admin.end_sessions_for_user(user["id"])  # SA mode never survives logout
     store.audit(None, user["id"], user["email"], "logout", "")
     _clear_session_cookie(response)
     return {"ok": True}

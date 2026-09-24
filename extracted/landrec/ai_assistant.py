@@ -558,8 +558,8 @@ HELP_FEATURES = [
      "coordinate across features: 'verify record <id>', 'reject record <id> because "
      "…', 'delete record <id>', 'assign record <id> to verification officer'. "
      "Consequential actions still stop at the 📋 AI Approval Center, and everything "
-     "I do is logged in the 📊 SA Activity Report. Sessions expire after 30 minutes "
-     "or with 'exit SA'."),
+     "I do is logged in the 📊 SA Activity Report. The session lasts until you "
+     "type 'exit SA' or log out (an app restart also ends it)."),
 ]
 
 
