@@ -30,30 +30,21 @@ def check(name, cond, extra=""):
         FAIL += 1
 
 
-def req(method, path, token=None, data=None, headers=None, raw=False):
-    url = BASE + path
-    hdrs = dict(headers or {})
-    body = None
-    if data is not None:
-        if isinstance(data, (dict, list)):
-            body = json.dumps(data).encode()
-            hdrs.setdefault("Content-Type", "application/json")
-        else:
-            body = data
-            hdrs.setdefault("Content-Type", "application/octet-stream")
-    r = urllib.request.Request(url, data=body, method=method, headers=hdrs)
-    if token and not hdrs.get("Authorization"):
-        r.add_header("Authorization", "Bearer " + token)
+def req(method, path, token=None, data=None, headers=None, raw=False, retries=4):
+    # route through ciutil.http — it retries HTTP 429 (the app's login/OCR
+    # burst limits) after a 65s cooldown, so this battery can run right after
+    # the other suites on the same machine (CI) without flaking. U6 passes
+    # retries=1 because it WANTs to observe the limiter triggering.
     try:
-        with urllib.request.urlopen(r, timeout=600) as resp:
-            b = resp.read()
-            return resp.status, (b if raw else (json.loads(b) if b else None))
-    except urllib.error.HTTPError as e:
-        b = e.read()
-        try:
-            return e.code, json.loads(b) if b else None
-        except Exception:
-            return e.code, (b if raw else b[:200].decode(errors="replace"))
+        from ciutil import http as _http
+    except ImportError:  # standalone run from another cwd
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from ciutil import http as _http
+    body_data = data
+    hdrs = dict(headers or {})
+    if isinstance(body_data, (bytes, bytearray)):
+        hdrs.setdefault("Content-Type", "application/octet-stream")
+    return _http(BASE, method, path, token, body_data, raw, hdrs, retries=retries)
 
 
 def login(email, pw):
@@ -351,7 +342,8 @@ check("C2 next request after crash also works", S == 200 and D.get("fields"), "s
 # ================= PHASE 5: RATE LIMIT (last — consumes the budget) =================
 codes = []
 for i in range(11):
-    s, _ = req("POST", "/api/process/sample/english_jamabandi_sample.png?lang=eng", token=AT)
+    # retries=1: this phase exists to OBSERVE the limiter, not to survive it
+    s, _ = req("POST", "/api/process/sample/english_jamabandi_sample.png?lang=eng", token=AT, retries=1)
     codes.append(s)
     time.sleep(0.15)
 check("U6 rate limiter triggers on burst (>=1 x 429, rest 200)",
