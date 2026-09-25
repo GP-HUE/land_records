@@ -308,6 +308,23 @@ def parse_coordinate(value: str):
     return (round(lat, 7), round(lon, 7))
 
 
+def ring_area_m2(ring) -> float:
+    """Area of a [[lat, lon], ...] ring in m² — equirectangular (planar)
+    approximation, identical math to the map's mapRingAreaM2().  Used to
+    cross-check printed coordinates against the recorded area."""
+    import math
+    if not ring or len(ring) < 3:
+        return 0.0
+    lat0 = math.radians(ring[0][0])
+    mlat = 111320.0
+    mlon = 111320.0 * math.cos(lat0)
+    a2 = 0.0
+    for i in range(len(ring)):
+        a, b = ring[i], ring[(i + 1) % len(ring)]
+        a2 += (a[0] * mlat) * (b[1] * mlon) - (b[0] * mlat) * (a[1] * mlon)
+    return abs(a2) / 2.0
+
+
 def extract_coordinates(ocr_result: dict) -> dict:
     """Read the four printed corner coordinates (NEW document kind only).
     Same label machinery + confidence model as extract_fields; a value that

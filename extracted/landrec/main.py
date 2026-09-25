@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.13.0"
+APP_VERSION = "3.13.1"
 
 
 def _warmup_ocr_worker():
@@ -423,10 +423,30 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
     if doc_kind == "new":
         coords = extractor.extract_coordinates(ocr_result)
         fields.update(coords)
-        parsed = sum(1 for f in coords.values()
-                     if extractor.parse_coordinate(f.get("value", "")))
+        ring = []
+        for i in range(1, 5):
+            f = coords.get("coordinate_%d" % i) or {}
+            ll = extractor.parse_coordinate(f.get("value", ""))
+            if ll:
+                ring.append(ll)
+        parsed = len(ring)
         coord_meta = {"kind": "new", "found": parsed, "complete": parsed == 4,
                       "read": len(coords)}
+        # ---- AREA CROSS-CHECK: computed (from the 4 corners) vs recorded
+        # (the printed क्षेत्रफल).  Never trust garbage digits blindly.
+        if parsed == 4:
+            area_m2 = extractor.ring_area_m2(ring)
+            rec_m2 = _area_str_to_m2(
+                (fields.get("area") or {}).get("value") or "")
+            coord_meta["area_m2"] = round(area_m2, 1)
+            if rec_m2:
+                coord_meta["recorded_m2"] = round(rec_m2, 1)
+            if area_m2 > _MAX_PLOT_M2:
+                # ~495+ acres for ONE khasra parcel = an OCR digit blew up
+                # (e.g. 77.08 read as 7.08) — refuse the boundary outright
+                coord_meta["block"] = "implausible_area"
+            elif rec_m2 and abs(area_m2 - rec_m2) / rec_m2 > 0.5:
+                coord_meta["area_mismatch"] = True
 
     validation = validator.validate(fields, scripts=ocr_result["detected_scripts"])
     if coord_meta and not coord_meta["complete"]:
@@ -435,6 +455,28 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
             "msg": "NEW-kind record: only %d/4 corner coordinates readable — "
                    "map boundary needs all four; verify them before approval"
                    % coord_meta["found"]})
+        if "coordinates" not in validation["low_confidence_fields"]:
+            validation["low_confidence_fields"].append("coordinates")
+        if validation["verdict"] == "valid":
+            validation["verdict"] = "review"
+    elif coord_meta and coord_meta.get("block") == "implausible_area":
+        validation["issues"].append({
+            "field": "coordinates", "severity": "review",
+            "msg": "NEW-kind record: the 4 coordinates span ~%.0f acres — "
+                   "implausible for a single parcel (an OCR digit error?): "
+                   "boundary NOT set until an officer fixes the corners"
+                   % (coord_meta.get("area_m2", 0) / 4046.86)})
+        if "coordinates" not in validation["low_confidence_fields"]:
+            validation["low_confidence_fields"].append("coordinates")
+        if validation["verdict"] == "valid":
+            validation["verdict"] = "review"
+    elif coord_meta and coord_meta.get("area_mismatch"):
+        validation["issues"].append({
+            "field": "coordinates", "severity": "review",
+            "msg": "NEW-kind record: area computed from the coordinates "
+                   "(%.2f acres) differs from the recorded area by more than "
+                   "50%% — boundary set, but an officer must confirm the "
+                   "corners/units" % (coord_meta.get("area_m2", 0) / 4046.86)})
         if "coordinates" not in validation["low_confidence_fields"]:
             validation["low_confidence_fields"].append("coordinates")
         if validation["verdict"] == "valid":
@@ -456,11 +498,18 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
 bulkocr.set_analyzer(_analyze_document)   # bulk worker reuses the same pipeline
 
 
+# sanity ceiling for ONE khasra parcel — above this the coordinates are
+# almost certainly an OCR digit slip, not a real plot
+_MAX_PLOT_M2 = 2_000_000.0    # ≈ 494 acres
+
+
 def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
     """NEW-kind record: turn the four printed corner coordinates into the
     record's map boundary (source 'document') and set its exact GIS pin at
     the polygon centroid.  Applied automatically on upload / bulk import /
-    verification so the Map tab always reflects the latest corrected values."""
+    verification so the Map tab always reflects the latest corrected values.
+    Area cross-check: an implausibly large polygon (OCR digit slip) is
+    REFUSED — the last good boundary is kept instead of writing garbage."""
     pts = []
     for i in range(1, 5):
         f = fields.get("coordinate_%d" % i) or {}
@@ -471,6 +520,13 @@ def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
         return {"boundary_set": False, "pin": None,
                 "corners": len(pts)}
     ring = [[lat, lon] for _i, (lat, lon) in pts]      # in printed order 1-4
+    area_m2 = extractor.ring_area_m2(ring)
+    area_acres = round(area_m2 / 4046.86, 2)
+    if area_m2 > _MAX_PLOT_M2:
+        return {"boundary_set": False, "pin": None, "corners": 4,
+                "reason": "implausible_area", "area_acres": area_acres,
+                "msg": "coordinates span ~%s acres — implausible for one "
+                       "parcel; last good boundary kept" % area_acres}
     store.set_boundary(doc_id, ring, "document", user)  # audits boundary_set
     clat = round(sum(p[1][0] for p in pts) / 4.0, 7)
     clon = round(sum(p[1][1] for p in pts) / 4.0, 7)
@@ -478,7 +534,12 @@ def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
     store.audit(doc_id, user["id"], user["email"], "location_set",
                 "auto: centroid of the 4 printed corner coordinates "
                 "(new-kind record)")
-    return {"boundary_set": True, "pin": [clat, clon], "corners": 4}
+    rec_m2 = _area_str_to_m2((fields.get("area") or {}).get("value") or "")
+    out = {"boundary_set": True, "pin": [clat, clon], "corners": 4,
+           "area_acres": area_acres}
+    if rec_m2:
+        out["area_mismatch"] = abs(area_m2 - rec_m2) / rec_m2 > 0.5
+    return out
 
 
 bulkocr.set_geo_applier(_apply_document_coordinates)
@@ -550,10 +611,16 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
            "ai": ai_out}
     if doc_kind == "new":
         coord_meta = a.get("coordinates") or {}
-        out["coordinates"] = {"kind": "new",
-                              "found": coord_meta.get("found", 0),
-                              "boundary_set": bool((geo or {}).get("boundary_set")),
-                              "pin": (geo or {}).get("pin")}
+        cout = {"kind": "new",
+                "found": coord_meta.get("found", 0),
+                "boundary_set": bool((geo or {}).get("boundary_set")),
+                "pin": (geo or {}).get("pin")}
+        for k in ("reason", "area_acres", "area_mismatch", "msg"):
+            if (geo or {}).get(k) is not None:
+                cout[k] = geo[k]
+        if coord_meta.get("block"):
+            cout["reason"] = coord_meta["block"]
+        out["coordinates"] = cout
     return out
 
 

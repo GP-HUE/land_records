@@ -3038,12 +3038,19 @@ function showResult(doc){
   $('#verdictBox').innerHTML = `<span class="pill ${cls}" style="font-size:13px">${lbl}</span>`;
   if(doc.coordinates){
     const co = doc.coordinates;
+    let coTxt;
+    if(co.boundary_set){
+      coTxt = t('नया प्रारूप: 4/4 कोने के निर्देशांक पढ़े — मानचित्र सीमा + सटीक पिन अपने आप सेट', 'New format: 4/4 corner coordinates read — map boundary + exact pin set automatically') +
+        (co.pin ? ' <span style="font-family:Consolas,monospace">📍 ' + co.pin[0].toFixed(5) + ', ' + co.pin[1].toFixed(5) + '</span>' : '') +
+        (co.area_acres ? ' · 📏 ' + co.area_acres + ' ac computed' : '');
+    } else if(co.reason === 'implausible_area'){
+      coTxt = t('⚠ निर्देशांकों से क्षेत्रफल अविश्वसनीय (' + (co.area_acres||'?') + ' एकड़) — OCR अंक त्रुटि संभावित; सीमा सेट नहीं हुई, सत्यापन में सुधारें',
+                '⚠ Coordinates span an implausible area (' + (co.area_acres||'?') + ' ac) — likely a misread digit; boundary NOT set, verify the corners');
+    } else {
+      coTxt = t('नया प्रारूप: ' + (co.found||0) + '/4 निर्देशांक पढ़े — सीमा के लिए चारों चाहिए; सत्यापन में सुधारें', 'New format: ' + (co.found||0) + '/4 coordinates read — all four needed for the boundary; correct them in verification');
+    }
     $('#verdictBox').innerHTML += '<div style="margin-top:8px;font-size:12.5px;font-weight:600;line-height:1.5;color:' +
-      (co.boundary_set ? '#166534' : '#92400e') + '">🧭 ' +
-      (co.boundary_set
-        ? t('नया प्रारूप: 4/4 कोने के निर्देशांक पढ़े — मानचित्र सीमा + सटीक पिन अपने आप सेट', 'New format: 4/4 corner coordinates read — map boundary + exact pin set automatically') +
-          (co.pin ? ' <span style="font-family:Consolas,monospace">📍 ' + co.pin[0].toFixed(5) + ', ' + co.pin[1].toFixed(5) + '</span>' : '')
-        : t('नया प्रारूप: ' + (co.found||0) + '/4 निर्देशांक पढ़े — सीमा के लिए चारों चाहिए; सत्यापन में सुधारें', 'New format: ' + (co.found||0) + '/4 coordinates read — all four needed for the boundary; correct them in verification')) + '</div>';
+      (co.boundary_set ? '#166534' : '#92400e') + '">🧭 ' + coTxt + '</div>';
   }
 
   // 🤖 AI OCR RESCUE / ROUTING banner
@@ -4350,6 +4357,30 @@ function mapRingAreaM2(ring){
   }
   return Math.abs(a2) / 2;
 }
+function mapAreaStrToM2(str){
+  // mirror of the server's _area_str_to_m2: '1.8 acre' / '2.4 एकड़' /
+  // '1.2 हेक्टेयर' / '3 bigha' / '48 cents' -> m² (unknown unit -> acres)
+  if(!str) return null;
+  const m = String(str).match(/(\d+(?:\.\d+)?)\s*([A-Za-z\u0900-\u097F]*)/);
+  if(!m) return null;
+  const v = parseFloat(m[1]), u = (m[2] || '').toLowerCase();
+  if(/hect|हेक्टेयर|हेक्टर|^ha$/.test(u)) return v * 10000;
+  if(/bigha|बीघा|बिगा|बिगहा/.test(u)) return v * 2529.29;
+  if(/cent|सेंट/.test(u)) return v * 40.4686;
+  if(/gunta|गुंठा/.test(u)) return v * 101.17;
+  return v * 4046.86;   // acre / एकड़ / unknown
+}
+function mapAreaMatchBadge(computedM2, recordedStr){
+  // cross-check: area from the boundary corners vs the recorded area field
+  const rec = mapAreaStrToM2(recordedStr);
+  if(!rec || !computedM2) return '';
+  const pct = Math.abs(computedM2 - rec) / rec * 100;
+  return pct <= 25
+    ? '<br><span style="color:#166534;font-size:11px;font-weight:700">✓ Area cross-check: computed ≈ recorded (' +
+      (pct < 0.5 ? '<0.5' : Math.round(pct)) + '% diff)</span>'
+    : '<br><span style="color:#b91c1c;font-size:11px;font-weight:800">⚠ Area cross-check: computed area is ' +
+      Math.round(pct) + '% OFF the recorded area — verify corners / units</span>';
+}
 function mapRingCentroid(ring){
   if(!ring || !ring.length) return null;
   const s = ring.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
@@ -4402,6 +4433,7 @@ function mapOpenBoundaryCard(docId){
       '📏 Computed area: <b>' + Math.round(areaM2).toLocaleString() + ' m²</b> (' +
       (areaM2 / 4046.86).toFixed(2) + ' acres)<br>' +
       (f.area ? '📄 Recorded area: <b>' + escapeHtml(f.area) + '</b>' : '') +
+      mapAreaMatchBadge(areaM2, f.area) +
       (f.boundary_source === 'estimated' ? '<br><span style="color:#92400e">⚠ This is an AREA-BASED ESTIMATE centered on the pin/village — digitize the real corners (✏️) for a legal boundary.</span>' : '') +
       '</div>';
     if(mapCanPin()){
@@ -5541,7 +5573,8 @@ async function showDocDetail(id, pushHistory=true){
               <div style="font-size:12px;line-height:2">
                 📍 Centroid: <b style="font-family:Consolas,monospace">${c[0].toFixed(6)}, ${c[1].toFixed(6)}</b><br>
                 📏 Computed area: <b>${Math.round(am).toLocaleString()} m²</b> (${(am/4046.86).toFixed(2)} acres)<br>
-                ${areaTxt ? '📄 Recorded area: <b>'+escapeHtml(areaTxt)+'</b><br>' : ''}
+                ${areaTxt ? '📄 Recorded area: <b>'+escapeHtml(areaTxt)+'</b>' : ''}
+                ${mapAreaMatchBadge(am, areaTxt)}<br>
                 <a href="javascript:void(0)" onclick="mapDigitizeFromDetail('${d.id}')" style="font-weight:700;color:#1d4ed8">🗺️ Show / edit on map →</a>
               </div>
             </div>

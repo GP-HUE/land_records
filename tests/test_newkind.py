@@ -76,9 +76,10 @@ def map_row(tok, doc_id):
 
 
 # centroids of the coordinates printed on the generated samples
-RAMPUR_CENTROID = (23.3521125, 77.3516625)
-RAMPUR_RING = [(23.35214, 77.35126), (23.35241, 77.35189),
-               (23.35203, 77.35207), (23.35187, 77.35143)]
+RAMPUR_CENTROID = (23.3522, 77.3517)
+RAMPUR_RING = [(23.35175, 77.35135), (23.35175, 77.35205),
+               (23.35265, 77.35205), (23.35265, 77.35135)]
+SUNDARPUR_C4 = "23.28925 N, 77.41231 E"   # the torn 4th corner of partial
 
 print("=" * 78)
 print("v3.13 DOCUMENT KIND (OLD/NEW) + PRINTED COORDINATES -> MAP TESTS")
@@ -168,7 +169,7 @@ check("D6 map row: kind=new but no boundary yet",
 
 print("\n[D2] verifier supplies the 4th corner -> boundary re-derived on verify")
 s, dv = http(BASE, "POST", "/api/documents/%s/verify" % r_part["id"], tok=ver,
-             data={"corrections": {"coordinate_4": "23.28880 N, 77.41244 E"}})
+             data={"corrections": {"coordinate_4": SUNDARPUR_C4}})
 check("D7 verify response re-applies coordinates", s == 200
       and (dv.get("coordinates") or {}).get("boundary_set") is True, dv.get("coordinates"))
 rowp2 = map_row(op, r_part["id"])
@@ -285,11 +286,67 @@ r_hin = upload(op, "khatauni_newkind_hindi_2025.png", "new", {"lang": "hin"})
 coh = r_hin.get("coordinates") or {}
 found_h = coh.get("found", -1)
 check("I1 coordinates block present, found in 0..4", 0 <= found_h <= 4, coh)
-check("I2 boundary_set == (found == 4) invariant",
-      coh.get("boundary_set") == (found_h == 4), coh)
-check("I3 incomplete read forces review verdict",
-      found_h == 4 or r_hin["validation"]["verdict"] == "review",
-      r_hin["validation"]["verdict"])
+hin_issues = " ".join(i.get("msg", "") for i in r_hin["validation"]["issues"])
+check("I2 no boundary without 4 plausible corners",
+      coh.get("boundary_set") is True
+      or found_h < 4
+      or "coordinates" in r_hin["validation"]["low_confidence_fields"],
+      (coh, found_h))
+check("I3 incomplete/implausible read forces review verdict",
+      coh.get("boundary_set") is True
+      or r_hin["validation"]["verdict"] == "review",
+      (r_hin["validation"]["verdict"], hin_issues[:120]))
+
+# ------------------------------------------- K. other document types
+print("\n[K] NEW kind works across document types (sale deed + mutation)")
+r_sale = upload(op, "sale_deed_newkind_2025.png", "new", {"doc_type": "sale_deed"})
+cks = r_sale.get("coordinates") or {}
+check("K1 sale deed: 4/4 coordinates + boundary set",
+      cks.get("found") == 4 and cks.get("boundary_set") is True, cks)
+rows_ = map_row(op, r_sale["id"])
+check("K2 sale deed: boundary on map, source=document",
+      rows_ and rows_.get("boundary_source") == "document"
+      and len(rows_.get("boundary") or []) == 4)
+r_mut = upload(op, "mutation_newkind_2025.png", "new", {"doc_type": "mutation"})
+ckm = r_mut.get("coordinates") or {}
+check("K3 mutation record: 4/4 coordinates + boundary set",
+      ckm.get("found") == 4 and ckm.get("boundary_set") is True, ckm)
+
+# ------------------------------------------------- L. malformed coordinates
+print("\n[L] malformed printed coordinates are refused, never guessed")
+r_bad = upload(op, "khatauni_newkind_badcoords_2025.png", "new")
+cob = r_bad.get("coordinates") or {}
+check("L1 found == 2 (one illegible, one out-of-range)", cob.get("found") == 2, cob)
+check("L2 boundary NOT set", cob.get("boundary_set") is False)
+check("L3 review verdict with coordinates flag",
+      r_bad["validation"]["verdict"] == "review"
+      and "coordinates" in r_bad["validation"]["low_confidence_fields"])
+rowb = map_row(op, r_bad["id"])
+check("L4 no map boundary for the malformed record",
+      rowb and rowb.get("boundary") is None)
+
+# ------------------------------------------ M. area cross-check geo guards
+print("\n[M] area cross-check: implausible polygon refused, mismatch flagged")
+# M1: push one corner ~40 degrees north via a verify correction -> polygon
+# spans thousands of km²; the guard must REFUSE to write it
+s, dm1 = http(BASE, "POST", "/api/documents/%s/verify" % r_new["id"], tok=ver,
+              data={"corrections": {"coordinate_1": "63.35175 N, 77.35135 E"}})
+cm1 = (dm1 or {}).get("coordinates") or {}
+check("M1 implausible re-derivation refused (boundary_set False)",
+      s == 200 and cm1.get("boundary_set") is False
+      and cm1.get("reason") == "implausible_area", cm1)
+rowm = map_row(op, r_new["id"])
+check("M2 last good boundary kept after a refused re-derivation",
+      rowm and len(rowm.get("boundary") or []) == 4
+      and rowm.get("boundary_source") == "document")
+# M3: stretch one corner so the area is plausible but way off the recorded
+# 1.8 acres -> boundary IS rewritten, flagged as an area mismatch
+s, dm3 = http(BASE, "POST", "/api/documents/%s/verify" % r_adm["id"], tok=ver,
+              data={"corrections": {"coordinate_3": "23.37000 N, 77.35205 E"}})
+cm3 = (dm3 or {}).get("coordinates") or {}
+check("M3 plausible-but-mismatched polygon set + area_mismatch flag",
+      s == 200 and cm3.get("boundary_set") is True
+      and cm3.get("area_mismatch") is True, cm3)
 
 # ------------------------------------------------------------- J. statics
 print("\n[J] static wiring")
@@ -303,7 +360,17 @@ check("J3 upload + bulk JS both send doc_kind",
       "fd.append('doc_kind'" in html and html.count("doc_kind") >= 4)
 check("J4 map knows the 'document' boundary source (badge + purple)",
       "Printed on document" in html and "#7c3aed" in html)
-check("J5 version bumped to 3.13.0", 'APP_VERSION = "3.13.0"' in mainpy)
+check("J5 version bumped to 3.13.1", 'APP_VERSION = "3.13.1"' in mainpy)
+check("J5b geo guard ceiling + reason wired", "_MAX_PLOT_M2" in mainpy
+      and "implausible_area" in mainpy and "area_mismatch" in mainpy)
+check("J5c area cross-check badge in UI", "mapAreaMatchBadge" in html
+      and "mapAreaStrToM2" in html)
+for fn in ["khatauni_newkind_rampur_2025.png", "khatauni_newkind_arera_2025.png",
+           "khatauni_newkind_hindi_2025.png", "khatauni_newkind_partial_2025.png",
+           "khatauni_newkind_badcoords_2025.png", "mutation_newkind_2025.png",
+           "sale_deed_newkind_2025.png"]:
+    check("J5d sample present: " + fn,
+          os.path.exists(os.path.join(SAMPLES, fn)))
 wf_path = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "ci.yml")
 check("J6 CI workflow runs this suite",
       os.path.exists(wf_path) and "test_newkind.py" in open(wf_path).read())

@@ -3,6 +3,31 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.13.1 (26-Sep-2026) — AREA CROSS-CHECK + FULL NEW-KIND SAMPLE PACK
+The boundary card always showed BOTH areas side by side —
+* 📏 Computed area: geometry of the boundary corners (shoelace formula
+  over lat/lon vertices, equirectangular m² -> acres)
+* 📄 Recorded area: the क्षेत्रफल printed on the record (OCR)
+v3.13.1 makes the system ACT on the comparison:
+### 1) Computed-vs-recorded area cross-check
+  * Green ✓ badge when the two agree (±25%), red ⚠ badge when they don't —
+    shown on the Map tab boundary card AND the record detail card
+### 2) Geo guards for auto-boundaries (never trust garbage digits)
+  * IMPLAUSIBLE polygon (> ~494 acres for one khasra parcel — classic OCR
+    digit slip like 77.08 -> 7.08): boundary REFUSED, last good boundary
+    kept, record forced into review with an explanatory issue
+  * Plausible but >50% off the recorded area: boundary IS written, flagged
+    as an area mismatch for the officer (truth-first, human confirms)
+### 3) Full NEW-kind sample pack for testing (7 scans, all area-consistent —
+  corners computed FROM the recorded area so computed ≈ recorded):
+  * khatauni_newkind_rampur_2025.png — Rampur Khas 145 (SA stay drama too)
+  * khatauni_newkind_arera_2025.png — clean 2nd khatauni (bulk demos)
+  * khatauni_newkind_hindi_2025.png — हिंदी निर्देशांक variant
+  * khatauni_newkind_partial_2025.png — torn 4th corner (review flow)
+  * khatauni_newkind_badcoords_2025.png — illegible + out-of-range corners
+  * mutation_newkind_2025.png / sale_deed_newkind_2025.png — doc-type coverage
+  * tests/test_newkind.py now 74 checks, all green.
+
 ## WHAT'S NEW IN v3.13.0 (26-Sep-2026) — DOCUMENT KIND: NEW-FORMAT COORDINATES → MAP
 Legacy paper records carry no GPS, so the map could only geocode their
 village/district TEXT (blue dot / grey district estimate). New-format land
