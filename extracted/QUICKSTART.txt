@@ -3,6 +3,50 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.11.0 (25-Sep-2026) — SA COURTLINK: DEMO COURT DATABASE + INSTANT CASE-HISTORY DETECTION
+Real courts keep a case record for every disputed land parcel; until now the
+portal only knew cases typed into it manually. SA CourtLink simulates that
+external courts database and lets the Superior Administrator layer DETECT a
+land's previous court-case history automatically.
+### 1) ⚖️ Demo Court Database (admin-only) — button sits ABOVE the 🤖 assistant
+  * Floating ⚖️ button (left, directly above the AI assistant) opens the
+    predefined court-case database: case no., type, court, petitioner vs
+    respondent, village/survey/khasra/owner, status (pending / STAY /
+    decided / dismissed), filed year, next hearing, summary
+  * Full ADD / EDIT / DELETE — create as many predefined cases as you want
+    for demos; every change is audited (court_db_case_added/updated/deleted)
+  * Seeded with 6 ready cases, incl. a STAY ORDER on Rampur Khas survey 145
+    and a decided 2019 revenue case on the demo Barkheda survey-312 parcel
+### 2) SA detection — record page asks "Do you want SA to detect predefined court cases?"
+  * Open any record (admin): a 🛡️ SA CourtLink card asks exactly that —
+    confirm and SA matches the record's OCR details (survey / khasra / owner
+    / village) against the court database with graded confidence:
+    EXACT (survey+village) · STRONG · PROBABLE (owner+village) · POSSIBLE,
+    each with a human-readable match reason; precision-proven (a case on an
+    adjacent survey number does NOT match)
+  * Every found case has "➕ Attach to this record" — one click imports it
+    into the record's litigation ledger (risk view, PDFs, transfer gate
+    pick it up); duplicates are refused
+  * The scan and the attach are written into the record's 📜 Audit Trail
+    (sa_courtlink_scan / sa_courtlink_attach)
+### 3) Instant on admin upload — and admin-only end to end
+  * When an ADMIN uploads/processes a document, SA screens it IMMEDIATELY
+    after OCR and a modal reports any prior court-case history found
+  * Data ENTRY operators and VERIFICATION officers CANNOT access anything:
+    no ⚖️ button, no database, no scan, no attach — server-side 403s back
+    the hidden UI (verified by the test battery)
+  * SA mode chat also understands "scan the court database for record <id>"
+### 4) New demo scans (samples/)
+  * khatauni_rampur_2025.png — matches the STAY order (admin upload → red
+    SA modal instantly)
+  * khatauni_guroli_2025.png — same-village near-miss stays CLEAN (Guroli
+    survey 88 vs case on 87) → green "no prior case" result
+### Tests
+New suite test_sa_courtlink.py — 48 checks (RBAC 10, CRUD 9, matching 6,
+upload screening 8, scan→audit 2, attach 4, SA chat 3, static wiring 7 incl.
+button-above-assistant geometry); fullpage sim 56/56 (+12 CourtLink checks);
+all previous batteries re-run green.
+
 ## WHAT'S NEW IN v3.10.1 (24-Sep-2026) — SA SESSION RULES REFINED
 ### 1) Non-admins get a clear "Not eligible" instead of silence
 When an operator/verifier/viewer types `SA` into the 🤖 assistant, it now

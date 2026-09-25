@@ -2166,6 +2166,42 @@
     </div>
   </div>
 
+  <!-- ============ ⚖️ DEMO COURT DATABASE — SA CourtLink (ADMIN ONLY) ============
+       Button sits directly ABOVE the AI assistant button (🤖 bottom:18px,
+       so this lives at bottom:84px).  Hidden unless the signed-in user is
+       an admin; every API behind it is admin-only server-side too. -->
+  <button id="courtDbFab" onclick="toggleCourtDbPanel()" title="Demo Court Database — SA CourtLink (admin only) / न्यायालय रिकॉर्ड डेटाबेस"
+    style="display:none;position:fixed;left:18px;bottom:84px;z-index:9997;width:56px;height:56px;border-radius:50%;
+           background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;border:2px solid #fff;
+           font-size:24px;cursor:pointer;box-shadow:0 6px 18px rgba(127,29,29,.45);
+           align-items:center;justify-content:center">⚖️</button>
+  <div id="courtDbPanel" class="hidden"
+    style="position:fixed;left:18px;bottom:150px;z-index:9997;width:480px;max-width:calc(100vw - 36px);
+           max-height:68vh;background:#fff;border:2px solid #7f1d1d;border-radius:14px;
+           box-shadow:0 18px 50px rgba(127,29,29,.35);display:flex;flex-direction:column;overflow:hidden">
+    <div style="background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div>
+        <div style="font-weight:800;font-size:14px">⚖️ Demo Court Database <span style="font-weight:400;font-size:11px;opacity:.85">— न्यायालय रिकॉर्ड (SA CourtLink)</span></div>
+        <div style="font-size:11px;opacity:.85">Predefined court cases SA matches land records against · add / edit your own · केवल एडमिन</div>
+      </div>
+      <div style="display:flex;gap:6px;flex:none">
+        <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="courtDbShowForm()">➕ Add Case</button>
+        <button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick="toggleCourtDbPanel()">✕</button>
+      </div>
+    </div>
+    <div id="courtDbForm" class="hidden" style="padding:10px 14px;border-bottom:1px solid #fecaca;background:#fef2f2;font-size:12px"></div>
+    <div id="courtDbList" style="flex:1;overflow-y:auto;padding:10px 12px;font-size:12px;min-height:120px"></div>
+  </div>
+
+  <!-- SA CourtLink result modal — shown instantly after an ADMIN uploads a
+       document whose OCR details match the demo court database -->
+  <div id="saScreenModal" class="hidden" style="position:fixed;inset:0;z-index:99998;align-items:center;justify-content:center;padding:18px;display:flex">
+    <div style="position:absolute;inset:0;background:rgba(15,43,72,.55)" onclick="closeSaScreenModal()"></div>
+    <div style="position:relative;background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:80vh;overflow:auto;box-shadow:0 24px 60px rgba(15,23,42,.35)">
+      <div id="saScreenBody" style="padding:16px 18px"></div>
+    </div>
+  </div>
+
   <!-- ============ SA ACTIVATION MODAL (hidden secure admin mode) ============ -->
   <div id="saActivationModal" class="hidden" style="position:fixed;inset:0;z-index:99999;align-items:center;justify-content:center;padding:18px;display:flex">
     <div style="position:absolute;inset:0;background:rgba(15,43,72,.55)" onclick="closeSaActivation()"></div>
@@ -2549,6 +2585,13 @@ function showApp(){
   // Land Map → "Load demo data" (admin only; makes a fresh install usable)
   const _demo = $('#mapDemoBtn');
   if(_demo) _demo.classList.toggle('hidden', me.role !== 'admin');
+  // ⚖️ Demo Court Database (SA CourtLink) — ADMIN ONLY: the ⚖️ button above
+  // the 🤖 assistant is hidden for operators / verifiers / viewers, and its
+  // panel is force-closed if a non-admin somehow has it open.
+  const _cdb = $('#courtDbFab');
+  if(_cdb) _cdb.style.display = (me.role === 'admin') ? 'flex' : 'none';
+  const _cdp = $('#courtDbPanel');
+  if(_cdp && me.role !== 'admin') _cdp.classList.add('hidden');
   if(me.role === 'viewer'){
     // VIEWER workspace (reference-portal "Simple Portal"): search-only.
     // The viewer sees the approved-records catalog; everything else is hidden.
@@ -2885,6 +2928,7 @@ function prevUploadStep(){
 
 function showResult(doc){
   currentDoc = doc;
+  try{ maybeShowSaScreening(doc); }catch(_){ /* SA CourtLink modal must never break the result view */ }
   $('#result').classList.remove('hidden');
   $('#resDocTitle').textContent = t(`अभिलेख #${doc.id} — ${doc.filename || 'Scanned Document'}`, `Document #${doc.id} — ${doc.filename || 'Scanned Document'}`);
   $('#resMeta').textContent = t(`ID: ${doc.id} · OCR सटीकता: ${doc.ocr.mean_conf}% · भाषा: [${doc.ocr.languages.join(', ')}] · पृष्ठ: ${doc.ocr.pages}`, `ID: ${doc.id} · OCR Accuracy: ${doc.ocr.mean_conf}% · Language: [${doc.ocr.languages.join(', ')}] · Pages: ${doc.ocr.pages}`);
@@ -5551,6 +5595,20 @@ async function showDocDetail(id, pushHistory=true){
         <div id="auditPanel" style="margin-top:10px"></div>
       </div>
 
+      ${(me && me.role === 'admin') ? `
+      <!-- 🛡️ SA CourtLink — ask SA to detect predefined court cases (ADMIN ONLY) -->
+      <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-left:4px solid #7c3aed;border-radius:8px;padding:12px;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-weight:800;font-size:13px;color:#5b21b6">🛡️ SA CourtLink — क्या आप चाहते हैं कि SA इस भूमि के पूर्व मुकदमे खोजे? (Do you want SA to detect predefined court cases for this land?)</div>
+            <div style="font-size:11.5px;color:var(--muted)">SA matches this record's OCR details (survey / khasra / owner / village) against the <b>demo court database</b> — the way a real courts database would be queried. Admin-only feature.</div>
+          </div>
+          <button class="btn ghost" style="padding:5px 12px;font-size:12px;color:#5b21b6;border-color:#c4b5fd" onclick="saCourtScan('${d.id}')">🛡️ Yes — let SA scan court records</button>
+        </div>
+        <div id="saCourtPanel" style="margin-top:10px"></div>
+      </div>
+      ` : ''}
+
       <!-- Action Bar (Save & Verify) -->
       ${canEdit ? `
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:12px;margin-top:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -6079,6 +6137,177 @@ async function loadCourtCases(docId){
   }
   box.innerHTML = html;
 }
+// ==========================================================================
+// ⚖️ SA CourtLink (v3.11) — demo court database + SA case-history detection.
+// ADMIN ONLY on screen; the matching APIs are admin-only server-side too.
+// ==========================================================================
+function _cdbChip(status){
+  const m = {pending:['#92400e','#fef3c7','PENDING / लंबित'], stay:['#b91c1c','#fee2e2','🛑 STAY ORDER / स्थगन'],
+             decided:['#166534','#dcfce7','DECIDED / निर्णीत'], dismissed:['#475569','#e2e8f0','DISMISSED / खारिज']};
+  const c = m[status] || m.pending;
+  return '<span style="display:inline-block;background:'+c[1]+';color:'+c[0]+';border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:800">'+c[2]+'</span>';
+}
+function _matchChip(level){
+  const m = {exact:['#065f46','#d1fae5','सटीक EXACT'], strong:['#1e40af','#dbeafe','मज़बूत STRONG'],
+             probable:['#92400e','#fef3c7','संभावित PROBABLE'], possible:['#475569','#e2e8f0','संभव POSSIBLE']};
+  const c = m[level] || m.possible;
+  return '<span style="display:inline-block;background:'+c[1]+';color:'+c[0]+';border-radius:4px;padding:1px 6px;font-size:10px;font-weight:800;margin-left:6px">'+c[2]+'</span>';
+}
+function _saScanRows(matches, docId){
+  return matches.map(function(m){
+    return '<div style="background:#fff;border:1px solid #e9d5ff;border-radius:6px;padding:8px 10px;margin-top:8px;font-size:12px">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<b style="color:#5b21b6">⚖️ ' + escapeHtml(m.case_number || '') + '</b>' +
+        '<span>' + _cdbChip(m.status) + _matchChip(m.match_level) + '</span></div>' +
+      '<div style="margin-top:3px;color:#334155">' + escapeHtml(m.case_type || '') + ' · ' + escapeHtml(m.court_name || '') +
+        (m.filed_year ? ' · filed ' + escapeHtml(m.filed_year) : '') +
+        (m.next_hearing ? ' · <b style="color:#b91c1c">next hearing ' + escapeHtml(m.next_hearing) + '</b>' : '') + '</div>' +
+      '<div style="margin-top:2px;color:#475569">' + escapeHtml((m.petitioner || '?') + ' vs ' + (m.respondent || '?')) +
+        (m.village ? ' · ' + escapeHtml(m.village) + (m.survey_number ? ' survey ' + escapeHtml(m.survey_number) : '') : '') + '</div>' +
+      (m.summary ? '<div style="margin-top:3px;color:#6b21a8;background:#faf5ff;border-radius:4px;padding:4px 8px">' + escapeHtml(m.summary) + '</div>' : '') +
+      '<div style="margin-top:3px;font-size:11px;color:var(--muted)">🔎 ' + escapeHtml(m.match_reason || '') + '</div>' +
+      (docId ? '<div style="margin-top:5px;text-align:right"><button class="btn ghost" style="padding:3px 10px;font-size:11px;color:#5b21b6;border-color:#c4b5fd" onclick="attachCourtCase(\''+escapeHtml(m.id)+'\',\''+docId+'\')">➕ Attach to this record / अभिलेख से जोड़ें</button></div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+async function saCourtScan(docId){
+  const box = document.getElementById('saCourtPanel'); if(!box) return;
+  if(!confirm('🛡️ SA CourtLink\n\nDo you want SA to scan the demo court database for this land record?\nक्या आप SA से इस अभिलेख की अदालती केस-history जाँच कराना चाहते हैं?')) return;
+  box.innerHTML = '<span class="muted">🛡️ SA is screening survey / village / owner against the court database…</span>';
+  let d;
+  try{ d = await api('/api/admin/court-db/scan/' + docId, {method:'POST', body:'{}'}); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  let html = '';
+  if(d.count){
+    const top = d.highest === 'exact';
+    html += '<div style="background:'+(top?'#fee2e2':'#fef3c7')+';border:1px solid '+(top?'#fca5a5':'#fde68a')+';border-left:4px solid '+(top?'#dc2626':'#d97706')+';border-radius:6px;padding:8px 12px;font-size:12.5px;font-weight:700;color:'+(top?'#991b1b':'#92400e')+'">' +
+      '🛡️ SA found PRIOR COURT-CASE HISTORY — ' + d.count + ' case(s) in the demo court database for this land (scanned survey ' + escapeHtml(d.scanned.survey || '—') + ' · village ' + escapeHtml(d.scanned.village || '—') + ').</div>';
+    html += _saScanRows(d.matches, docId);
+  } else {
+    html += '<div style="background:#f0fdf4;border:1px solid #86efac;border-left:4px solid #16a34a;border-radius:6px;padding:8px 12px;font-size:12.5px;color:#166534;font-weight:700">✅ SA screened the court database — NO previous court case found for this land (survey ' + escapeHtml(d.scanned.survey || '—') + ' · village ' + escapeHtml(d.scanned.village || '—') + ').</div>';
+  }
+  html += '<div class="muted" style="font-size:10.5px;margin-top:6px">📜 This scan is recorded in the record\'s Audit Trail. Admin-only — operators/verifiers cannot run it.</div>';
+  box.innerHTML = html;
+  try{ loadRecordAudit(docId); }catch(_){ }   // refresh the audit panel so judges see the new entry
+}
+
+async function attachCourtCase(caseId, docId){
+  try{
+    const d = await api('/api/admin/court-db/attach', {method:'POST', body: JSON.stringify({case_id: caseId, document_id: docId})});
+    alert('✅ Court case ' + (d.court_case && d.court_case.case_number ? d.court_case.case_number : '') + ' attached to this record\'s litigation ledger — the ⚖️ Court Case panel above now shows it.');
+    try{ loadCourtCases(docId); }catch(_){ }
+    try{ loadRecordAudit(docId); }catch(_){ }
+  }catch(e){ alert(e.message); }
+}
+
+// Instant modal after an ADMIN uploads a document (server only adds
+// sa_screening for admins — operators never trigger it).
+function maybeShowSaScreening(doc){
+  const s = doc && doc.sa_screening; if(!s) return;
+  const modal = document.getElementById('saScreenModal'); if(!modal) return;
+  let html = '';
+  if(s.count){
+    html += '<div style="border-bottom:3px solid #7c3aed;padding-bottom:8px;margin-bottom:8px">' +
+      '<div style="font-size:10px;letter-spacing:2px;font-weight:800;color:#7c3aed">SA COURTLINK · न्यायालय रिकॉर्ड जाँच</div>' +
+      '<div style="font-weight:900;font-size:17px;color:#5b21b6;margin-top:2px">⚠️ इस भूमि का पूर्व मुकदमा मिला — Prior court-case history found</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + s.count + ' predefined case(s) in the demo court database match this document\'s OCR details (survey ' + escapeHtml(s.scanned.survey || '—') + ' · village ' + escapeHtml(s.scanned.village || '—') + ' · owner ' + escapeHtml(s.scanned.owner || '—') + ').</div></div>';
+    html += _saScanRows(s.matches, doc.id);
+    html += '<div class="muted" style="font-size:11px;margin-top:8px">ओपन करें Records → this record → 🛡️ SA CourtLink to attach a case to the record\'s ledger. (Admin-only feature.)</div>';
+  } else {
+    html += '<div style="border-bottom:3px solid #16a34a;padding-bottom:8px;margin-bottom:8px">' +
+      '<div style="font-size:10px;letter-spacing:2px;font-weight:800;color:#16a34a">SA COURTLINK · न्यायालय रिकॉर्ड जाँच</div>' +
+      '<div style="font-weight:900;font-size:17px;color:#166534;margin-top:2px">✅ पूर्व मुकदमा नहीं — No prior court case in the court database</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-top:2px">SA screened this document (survey ' + escapeHtml(s.scanned.survey || '—') + ' · village ' + escapeHtml(s.scanned.village || '—') + ') instantly on upload.</div></div>';
+  }
+  html += '<div style="text-align:right;margin-top:10px"><button class="btn" style="padding:6px 16px;background:#5b21b6" onclick="closeSaScreenModal()">OK</button></div>';
+  document.getElementById('saScreenBody').innerHTML = html;
+  modal.classList.remove('hidden');
+}
+function closeSaScreenModal(){ const m = document.getElementById('saScreenModal'); if(m) m.classList.add('hidden'); }
+
+// ---- Demo Court Database panel (add / edit / delete predefined cases) ----
+let _cdbEditId = null;
+function toggleCourtDbPanel(){
+  if(!me || me.role !== 'admin'){ alert('🔒 Admin-only feature — the demo court database is restricted to administrators (केवल एडमिन).'); return; }
+  const p = document.getElementById('courtDbPanel'); if(!p) return;
+  p.classList.toggle('hidden');
+  if(!p.classList.contains('hidden')) loadCourtDb();
+}
+async function loadCourtDb(){
+  const box = document.getElementById('courtDbList'); if(!box) return;
+  box.innerHTML = '<span class="muted">Loading court database…</span>';
+  let d;
+  try{ d = await api('/api/admin/court-db'); }
+  catch(e){ box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  const cases = d.cases || [];
+  if(!cases.length){ box.innerHTML = '<span class="muted">No predefined cases yet — use ➕ Add Case.</span>'; return; }
+  box.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + cases.length + ' predefined case(s) — SA matches every admin upload / record scan against these.</div>' +
+    cases.map(function(c){
+      return '<div style="border:1px solid #fecaca;border-radius:6px;padding:7px 9px;margin-bottom:7px;background:#fff">' +
+        '<div style="display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap;align-items:center">' +
+          '<b style="color:#7f1d1d">' + escapeHtml(c.case_number || '') + '</b><span>' + _cdbChip(c.status) + '</span></div>' +
+        '<div style="color:#334155;margin-top:2px">' + escapeHtml(c.case_type || '') + ' · ' + escapeHtml(c.court_name || '') + (c.filed_year ? ' · ' + escapeHtml(c.filed_year) : '') + '</div>' +
+        '<div style="color:#475569;font-size:11px;margin-top:1px">' + escapeHtml((c.petitioner || '?') + ' vs ' + (c.respondent || '?')) + ' · ' + escapeHtml(c.village || '—') + (c.survey_number ? ' survey ' + escapeHtml(c.survey_number) : '') + (c.owner_name ? ' · ' + escapeHtml(c.owner_name) : '') + '</div>' +
+        (c.summary ? '<div style="color:#6b21a8;font-size:11px;margin-top:2px">' + escapeHtml(c.summary) + '</div>' : '') +
+        '<div style="text-align:right;margin-top:4px">' +
+          '<button class="btn ghost" style="padding:2px 8px;font-size:11px" onclick=\'courtDbShowForm(' + JSON.stringify(c).replace(/'/g, "&#39;") + ')\'>✎ Edit</button> ' +
+          '<button class="btn ghost" style="padding:2px 8px;font-size:11px;color:#b91c1c" onclick="delCourtDbCase(\''+escapeHtml(c.id)+'\')">🗑 Delete</button></div>' +
+      '</div>';
+    }).join('');
+}
+function courtDbShowForm(c){
+  if(!me || me.role !== 'admin') return;
+  const f = document.getElementById('courtDbForm'); if(!f) return;
+  _cdbEditId = (c && c.id) || null;
+  const v = k => (c && c[k]) ? String(c[k]) : '';
+  const sel = (id, cur, opts) => '<select id="'+id+'" style="width:100%;padding:5px 6px;border:1px solid var(--gov-border);border-radius:6px">' +
+      opts.map(o => '<option' + (o === cur ? ' selected' : '') + '>' + escapeHtml(o) + '</option>').join('') + '</select>';
+  const inp = (id, val, ph) => '<input id="'+id+'" value="'+escapeHtml(val)+'" placeholder="'+ph+'" style="width:100%;padding:5px 6px;border:1px solid var(--gov-border);border-radius:6px">';
+  f.innerHTML =
+    '<b style="color:#7f1d1d">' + (c ? '✎ Edit case ' + escapeHtml(c.case_number || '') : '➕ New predefined court case / नया मुकदमा जोड़ें') + '</b>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-top:6px">' +
+      inp('cdbfCaseNumber', v('case_number'), 'Case no. * (CS/2026/0117)') +
+      sel('cdbfType', v('case_type') || 'civil', ['civil','criminal','revenue','revenue appeal','writ','possession','title','other']) +
+      inp('cdbfCourt', v('court_name'), 'Court name') +
+      inp('cdbfPetitioner', v('petitioner'), 'Petitioner (वादी)') +
+      inp('cdbfRespondent', v('respondent'), 'Respondent (प्रतिवादी)') +
+      inp('cdbfVillage', v('village'), 'Village * (match key)') +
+      inp('cdbfSurvey', v('survey_number'), 'Survey no. (match key)') +
+      inp('cdbfKhasra', v('khasra_number'), 'Khasra no.') +
+      inp('cdbfOwner', v('owner_name'), 'Landowner name (match key)') +
+      sel('cdbfStatus', v('status') || 'pending', ['pending','stay','decided','dismissed']) +
+      inp('cdbfYear', v('filed_year'), 'Filed year (YYYY)') +
+      inp('cdbfHearing', v('next_hearing'), 'Next hearing (YYYY-MM-DD)') +
+      inp('cdbfSummary', v('summary'), 'Summary / relief sought') +
+    '</div>' +
+    '<div style="font-size:10.5px;color:var(--muted);margin-top:4px">Match keys: SA matches on survey+village (exact), owner+village (probable), etc. — give at least a survey number, or village + owner.</div>' +
+    '<div style="margin-top:7px;display:flex;gap:8px">' +
+      '<button class="btn" style="background:#7f1d1d;color:#fff;padding:5px 12px;font-size:12px" onclick="saveCourtDbForm()">✓ Save Case</button>' +
+      '<button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="document.getElementById(\'courtDbForm\').classList.add(\'hidden\')">✕ Cancel</button></div>';
+  f.classList.remove('hidden');
+  f.scrollIntoView({block:'nearest'});
+}
+async function saveCourtDbForm(){
+  const g = id => { const el2 = document.getElementById(id); return el2 ? el2.value.trim() : ''; };
+  const body = { case_number: g('cdbfCaseNumber'), case_type: g('cdbfType'), court_name: g('cdbfCourt'),
+    petitioner: g('cdbfPetitioner'), respondent: g('cdbfRespondent'), village: g('cdbfVillage'),
+    survey_number: g('cdbfSurvey'), khasra_number: g('cdbfKhasra'), owner_name: g('cdbfOwner'),
+    status: g('cdbfStatus'), filed_year: g('cdbfYear'), next_hearing: g('cdbfHearing'), summary: g('cdbfSummary') };
+  try{
+    if(_cdbEditId) await api('/api/admin/court-db/' + _cdbEditId, {method:'PUT', body: JSON.stringify(body)});
+    else await api('/api/admin/court-db', {method:'POST', body: JSON.stringify(body)});
+    document.getElementById('courtDbForm').classList.add('hidden');
+    _cdbEditId = null;
+    loadCourtDb();
+  }catch(e){ alert(e.message); }
+}
+async function delCourtDbCase(cid){
+  if(!confirm('Delete this predefined case from the demo court database?')) return;
+  try{ await api('/api/admin/court-db/' + cid, {method:'DELETE'}); loadCourtDb(); }
+  catch(e){ alert(e.message); }
+}
+
 function showCaseForm(){
   const box = $('#casePanel'); if(!box || !_caseLand) return;
   box.insertAdjacentHTML('beforeend',

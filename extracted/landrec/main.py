@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 # (OpenCV / Tesseract / PyMuPDF) runs in the disposable worker process via
 # ocrpool, so a bad file can never crash the web-server process itself.
 from . import ai_rescue, auth, cert_pdf, common, extractor, ocrpool, paths, store, validator
-from . import ai_support, ai_assistant, sa_admin
+from . import ai_support, ai_assistant, sa_admin, courtlink
 
 PKG = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(paths.resource_dir(), "landrec", "static")
@@ -30,13 +30,14 @@ SESSION_COOKIE = "lr_session"
 
 app = FastAPI(title="Intelligent Land Record Digitization & Validation System")
 store.init_db()
+courtlink.init_db()   # demo court database (SA CourtLink) — table + seed
 log = logging.getLogger("landrec")
 _START_TIME = time.time()
 
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.10.1"
+APP_VERSION = "3.11.0"
 
 
 def _warmup_ocr_worker():
@@ -470,6 +471,21 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
             "ai": ai_out}
 
 
+def _maybe_sa_court_screen(result: dict, user: dict):
+    """SA CourtLink (v3.11): when the ADMIN uploads a document, the Superior
+    Administrator layer immediately screens the OCR-extracted land details
+    against the demo court database and rides the findings back in the
+    upload response.  Non-admin uploads are NOT screened — only admins can
+    use this feature.  Screening failure must never break an upload."""
+    try:
+        if user and user.get("role") == "admin":
+            res = courtlink.screen_fields(result.get("fields") or {})
+            res["document_id"] = result.get("id")
+            result["sa_screening"] = res
+    except Exception:  # noqa: BLE001
+        log.exception("SA CourtLink screening failed (non-fatal)")
+
+
 @app.post("/api/process")
 async def process(request: Request, file: UploadFile = File(...),
                   lang: str = Form(""), doc_type: str = Form("land_record"),
@@ -499,6 +515,7 @@ async def process(request: Request, file: UploadFile = File(...),
             os.remove(stored_path)
         # No internals in the client-facing message (stack traces leak paths).
         raise HTTPException(500, "Processing failed. Please try again or contact the administrator.")
+    _maybe_sa_court_screen(result, user)   # SA CourtLink: instant for admin
     return result
 
 
@@ -530,7 +547,9 @@ def process_sample(name: str, lang: str = Query(""), doc_type: str = Query("land
         raise HTTPException(404, "Sample not found")
     with open(path, "rb") as fh:
         data = fh.read()
-    return _run_pipeline(data, name, user, langs=_parse_lang(lang), doc_type=doc_type)
+    result = _run_pipeline(data, name, user, langs=_parse_lang(lang), doc_type=doc_type)
+    _maybe_sa_court_screen(result, user)   # SA CourtLink: instant for admin
+    return result
 
 
 @app.get("/api/samples")
@@ -938,6 +957,69 @@ def sa_report(session_id: str = Query(""), user: dict = Depends(require_role("ad
         return sa_admin.report(session_id, user)
     except sa_admin.SAError as e:
         raise _sa_error(e)
+
+
+# --------------------------------------------------------------------------
+# SA CourtLink — demo court database + SA court-history screening (v3.11)
+# All endpoints are ADMIN-ONLY: data operators and verification officers
+# cannot view the court database, add/edit cases, scan, or attach.
+# --------------------------------------------------------------------------
+def _cl_error(e: courtlink.CourtLinkError):
+    return HTTPException(e.status, str(e))
+
+
+@app.get("/api/admin/court-db")
+def court_db_list(user: dict = Depends(require_role("admin"))):
+    """List every predefined case in the demo court database."""
+    return {"cases": courtlink.list_cases()}
+
+
+@app.post("/api/admin/court-db")
+def court_db_create(payload: dict, user: dict = Depends(require_role("admin"))):
+    """Add a predefined case to the court database."""
+    try:
+        return courtlink.create_case(payload or {}, user)
+    except courtlink.CourtLinkError as e:
+        raise _cl_error(e)
+
+
+@app.put("/api/admin/court-db/{cid}")
+def court_db_update(cid: str, payload: dict, user: dict = Depends(require_role("admin"))):
+    """Edit a predefined case in the court database."""
+    try:
+        return courtlink.update_case(cid, payload or {}, user)
+    except courtlink.CourtLinkError as e:
+        raise _cl_error(e)
+
+
+@app.delete("/api/admin/court-db/{cid}")
+def court_db_delete(cid: str, user: dict = Depends(require_role("admin"))):
+    """Remove a predefined case from the court database."""
+    try:
+        return courtlink.delete_case(cid, user)
+    except courtlink.CourtLinkError as e:
+        raise _cl_error(e)
+
+
+@app.post("/api/admin/court-db/scan/{doc_id}")
+def court_db_scan(doc_id: str, user: dict = Depends(require_role("admin"))):
+    """SA scans this record's OCR details against the court database and
+    reports prior court-case history (recorded in the record's audit trail)."""
+    try:
+        return courtlink.screen_document(doc_id, user, source="record_tab")
+    except courtlink.CourtLinkError as e:
+        raise _cl_error(e)
+
+
+@app.post("/api/admin/court-db/attach")
+def court_db_attach(payload: dict, user: dict = Depends(require_role("admin"))):
+    """Import a matched court case into the record's internal litigation
+    ledger (court_cases), so the record's risk view and PDFs reflect it."""
+    try:
+        return courtlink.attach_case(payload.get("case_id") or "",
+                                     payload.get("document_id") or "", user)
+    except courtlink.CourtLinkError as e:
+        raise _cl_error(e)
 
 
 @app.get("/api/documents/{doc_id}/audit")

@@ -349,6 +349,24 @@ async function main(){
   check('backend: logout ends the user\'s SA sessions', saSrc.includes('def end_sessions_for_user(') && fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8').includes('sa_admin.end_sessions_for_user(user["id"])'));
   check('backend: SA endpoints all admin-gated', (fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8').match(/\/api\/admin\/sa\/[a-z-]+"[\s\S]{0,90}require_role\("admin"\)/g) || []).length >= 4);
 
+  // ================= v3.11.0 static UI assertions — SA CourtLink =================
+  const cdbM = html.match(/id="courtDbFab"[\s\S]{0,320}?bottom:(\d+)px/);
+  const aiM = html.match(/id="aiFab"[\s\S]{0,300}?bottom:(\d+)px/);
+  check('court DB button sits directly above the AI assistant button', !!cdbM && !!aiM && parseInt(cdbM[1], 10) > parseInt(aiM[1], 10), cdbM && cdbM[0].slice(0, 120));
+  check('court DB button hidden until an admin role is applied', /id="courtDbFab"[\s\S]{0,220}?display:none/.test(html));
+  check('court DB panel with add-case + list present', html.includes('id="courtDbPanel"') && html.includes('id="courtDbList"') && html.includes('Add Case'));
+  check('record-detail SA CourtLink block is admin-gated + asks bilingually', /\$\{\(me && me\.role === 'admin'\)/.test(js) && js.includes('saCourtPanel') && js.includes('Do you want SA'));
+  check('record scan runs through a confirmation prompt', js.includes('Do you want SA to scan the demo court database for this land record?'));
+  for (const fn of ['saCourtScan', 'attachCourtCase', 'maybeShowSaScreening', 'toggleCourtDbPanel', 'loadCourtDb', 'courtDbShowForm', 'saveCourtDbForm', 'delCourtDbCase'])
+    check('CourtLink fn ' + fn + ' defined', vm.runInContext('typeof ' + fn, sandbox) === 'function');
+  check('upload success path shows the SA screening modal', js.includes('maybeShowSaScreening(doc)') && html.includes('id="saScreenModal"'));
+  check('CourtLink endpoints used by UI', js.includes("'/api/admin/court-db'") && js.includes("'/api/admin/court-db/scan/'") && js.includes("'/api/admin/court-db/attach'"));
+  const mainSrc11 = fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8');
+  check('backend: upload auto-screen gated to admin role', mainSrc11.includes('_maybe_sa_court_screen') && mainSrc11.includes('user.get("role") == "admin"'));
+  check('backend: six court-db routes all admin-gated', (mainSrc11.match(/\/api\/admin\/court-db[^"]*"[\s\S]{0,140}?require_role\("admin"\)/g) || []).length >= 6);
+  const clSrc = fs.readFileSync(LR_ROOT + '/landrec/courtlink.py', 'utf8');
+  check('backend: courtlink module w/ seeded STAY case + scan + attach', clSrc.includes('WPL/2023/0234') && clSrc.includes('def screen_document') && clSrc.includes('def attach_case'));
+
   console.log('\\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }

@@ -23,7 +23,7 @@ import re
 import secrets
 import time
 
-from . import ai_assistant, auth, store
+from . import ai_assistant, auth, courtlink, store
 
 # Activation code: "SA" by default; a deployment can change it via env
 # (then the trigger typed into the chat becomes 'SA <code>').
@@ -239,6 +239,36 @@ def _assign_task(did, qn, sid, s):
                        % (t["id"], role, priority, did, role))}
 
 
+def _courtlink_scan(did, sid, s):
+    """SA CourtLink from the chat: 'scan the court database for record <id>'.
+    Read-only here — the record's audit trail is written only when the scan
+    is run from the record page; the session itself logs to sa_events."""
+    _doc_or_error(did)
+    res = courtlink.screen_document(
+        did, {"id": s["user_id"], "email": s.get("email") or ""}, source="sa_chat")
+    store.sa_event(sid, "COURTLINK", "%s -> %s prior case(s)" % (did, res["count"]))
+    if not res["count"]:
+        txt = ("⚖️ I screened record #%s against the demo court database — "
+               "✅ NO prior court case found for this land "
+               "(survey %s, village %s)." % (
+                   did, res["scanned"].get("survey") or "—",
+                   res["scanned"].get("village") or "—"))
+    else:
+        lines = []
+        for m in res["matches"][:6]:
+            lines.append("• %s — %s | %s | status: %s | match: %s (%s)" % (
+                m.get("case_number"), m.get("case_type"), m.get("court_name"),
+                (m.get("status") or "").upper(), m.get("match_level"),
+                m.get("match_reason")))
+        txt = ("⚖️ SA CourtLink: record #%s has PRIOR COURT-CASE HISTORY — "
+               "%d case(s) found in the demo court database:\n%s\n"
+               "Open the record and use the 🛡️ SA CourtLink panel to attach "
+               "a case to its litigation ledger." % (
+                   did, res["count"], "\n".join(lines)))
+    return {"type": "court_scan", "mode": "SA", "results": res["matches"],
+            "scan": res, "answer": txt}
+
+
 def query(session_id, q, current_user):
     """One SA-mode message: agentic intents first, else the full assistant."""
     s = _require(session_id)
@@ -253,6 +283,9 @@ def query(session_id, q, current_user):
     did = did_match.group(0) if did_match else None
 
     try:
+        if did and re.search(r"\b(court|litigation|क़ेस|केस|मुकदमा|मुकदम|अदालत)\b", low) \
+                and re.search(r"\b(scan|screen|detect|check|history|database|जाँच|जांच|खोज)\b", low):
+            return _courtlink_scan(did, sid, s)
         if did and re.search(r"\b(assign|delegate|sop|सौंप)\b", low):
             return _assign_task(did, low, sid, s)
         if did and re.search(r"\b(reject|niras|asveekar|अस्वीकार|रद्द)\b", low):
@@ -284,6 +317,8 @@ SA_CAPABILITIES = (
     "• 'delete record <id>' — a deletion proposal, approval-gated (audit trail kept)\n"
     "• 'assign record <id> to verification officer / operator' — direct delegation to "
     "the AI Tasks inbox\n"
+    "• 'scan the court database for record <id>' — SA CourtLink: matches the land "
+    "against the demo court database and reports any prior court-case history\n"
     "• all read answers: loans, court cases, fraud risk, PDFs, backup, map, stats, "
     "record search…\n"
     "Consequential actions ALWAYS stop at the 📋 AI Approval Center, and every step "
