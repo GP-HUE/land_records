@@ -1205,6 +1205,13 @@
             </select>
           </div>
           <div class="formfield" style="margin-bottom:14px">
+            <label class="field-label" for="docKindSelect">🧭 दस्तावेज़ किस्म / Document Kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप में प्लॉट के 4 कोनों के GPS निर्देशांक छपे होते हैं — नक्शे पर सीमा + पिन अपने आप बनती है)</span></label>
+            <select id="docKindSelect" style="max-width:360px">
+              <option value="old">पुराना / Old — standard paper record (no printed coordinates)</option>
+              <option value="new">नया / New — 4 printed corner coordinates → auto map boundary + pin</option>
+            </select>
+          </div>
+          <div class="formfield" style="margin-bottom:14px">
             <label class="field-label" for="docLangSelect">🌐 दस्तावेज़ की भाषा / Document Language <span style="font-weight:400;color:var(--muted)">(चुनें — picking the known language is MUCH faster & more accurate; use Auto only if unsure)</span></label>
             <select id="docLangSelect" style="max-width:360px">
               <option value=""> Auto-detect (slower — भाषा पता न हो तो)</option>
@@ -1392,6 +1399,13 @@
                 <option value="mutation">Mutation Record (Namantaran / Ferfar)</option>
                 <option value="sale_deed">Sale Deed (Registry / Conveyance)</option>
                 <option value="tax_receipt">Tax Receipt (Lagan / Revenue Slip)</option>
+              </select>
+            </div>
+            <div class="formfield" style="min-width:240px">
+              <label class="field-label" for="bulkKind">🧭 दस्तावेज़ किस्म / Document kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप = 4 निर्देशांक → map boundary)</span></label>
+              <select id="bulkKind">
+                <option value="old">पुराना / Old — no printed coordinates</option>
+                <option value="new">नया / New — 4 corner coordinates → auto map boundary</option>
               </select>
             </div>
           </div>
@@ -2866,6 +2880,7 @@ async function upload(file){
   startProcWatch();
   const fd=new FormData(); fd.append('file',file); fd.append('lang', docLang());
   const dt=$('#docTypeSelect'); if(dt) fd.append('doc_type', dt.value || 'land_record');
+  const dk=$('#docKindSelect'); if(dk) fd.append('doc_kind', dk.value || 'old');
   let r;
   try{
     r = await fetch(authUrl('/api/process'),{method:'POST',
@@ -2937,6 +2952,8 @@ async function processSample(name){
     const params = [];
     if(lang) params.push('lang=' + encodeURIComponent(lang));
     params.push('doc_type=' + encodeURIComponent(dt));
+    const dk = ($('#docKindSelect') ? $('#docKindSelect').value : '') || 'old';
+    params.push('doc_kind=' + encodeURIComponent(dk));
     const d = await api('/api/process/sample/' + encodeURIComponent(name) + '?' + params.join('&'), {method:'POST'});
     showResult(d);
   }catch(e){
@@ -2963,7 +2980,11 @@ const LABELS={
   ownership_type:'Ownership Type (स्वामित्व प्रकार)',
   mutation_no:'Mutation Number (नामांतरण/म्यूटेशन सं.)',
   registration_no:'Registration Number (पंजीकरण सं.)',
-  khatauni_year:'Khatauni / Fasli Year (वर्ष)'
+  khatauni_year:'Khatauni / Fasli Year (वर्ष)',
+  coordinate_1:'Coordinate 1 — corner lat/lon (निर्देशांक 1)',
+  coordinate_2:'Coordinate 2 — corner lat/lon (निर्देशांक 2)',
+  coordinate_3:'Coordinate 3 — corner lat/lon (निर्देशांक 3)',
+  coordinate_4:'Coordinate 4 — corner lat/lon (निर्देशांक 4)'
 };
 // field label in the current language
 function fl(fid){ return pick(LABELS[fid] || fid); }
@@ -3015,6 +3036,15 @@ function showResult(doc){
   };
   const [cls, lbl] = map[v.verdict] || ['review', t('समीक्षाधीन', 'Review')];
   $('#verdictBox').innerHTML = `<span class="pill ${cls}" style="font-size:13px">${lbl}</span>`;
+  if(doc.coordinates){
+    const co = doc.coordinates;
+    $('#verdictBox').innerHTML += '<div style="margin-top:8px;font-size:12.5px;font-weight:600;line-height:1.5;color:' +
+      (co.boundary_set ? '#166534' : '#92400e') + '">🧭 ' +
+      (co.boundary_set
+        ? t('नया प्रारूप: 4/4 कोने के निर्देशांक पढ़े — मानचित्र सीमा + सटीक पिन अपने आप सेट', 'New format: 4/4 corner coordinates read — map boundary + exact pin set automatically') +
+          (co.pin ? ' <span style="font-family:Consolas,monospace">📍 ' + co.pin[0].toFixed(5) + ', ' + co.pin[1].toFixed(5) + '</span>' : '')
+        : t('नया प्रारूप: ' + (co.found||0) + '/4 निर्देशांक पढ़े — सीमा के लिए चारों चाहिए; सत्यापन में सुधारें', 'New format: ' + (co.found||0) + '/4 coordinates read — all four needed for the boundary; correct them in verification')) + '</div>';
+  }
 
   // 🤖 AI OCR RESCUE / ROUTING banner
   const aiBox = $('#aiRescueBanner');
@@ -3091,6 +3121,8 @@ function showResult(doc){
   step3Box.innerHTML = '';
   const step3Keys = ['village', 'tehsil', 'district', 'state', 'land_class', 'ownership_type', 'mutation_no', 'registration_no', 'khatauni_year'];
   step3Keys.forEach(fid => buildInputField(step3Box, fid, f[fid]));
+  // NEW document kind: the four printed corner coordinates, editable like any field
+  ['coordinate_1','coordinate_2','coordinate_3','coordinate_4'].forEach(fid=>{ if(f[fid]) buildInputField(step3Box, fid, f[fid]); });
 
   // Step 4 OCR text
   $('#ocrPreview').textContent = doc.ocr.text_preview || t('कोई ओसीआर पाठ उपलब्ध नहीं है', 'No text detected');
@@ -4265,6 +4297,7 @@ function mapDrawMarkers(){
       (r.khasra?('Ks '+escapeHtml(r.khasra)+'<br>'):'' ) +
       (r.village?(escapeHtml(r.village)+(r.district?', '+escapeHtml(r.district):'')+'<br>'):'' ) +
       (r.area?('Area: '+escapeHtml(r.area)+'<br>'):'' ) +
+      (r.kind==='new' ? '<span style="color:#6b21a8;font-size:11px;font-weight:700">🧭 new-format record (printed coordinates)</span><br>' : '' ) +
       (est ? '<span style="color:#6b7280;font-size:11px">⚪ district-level estimate (village not on map)<br></span>' : '' ) +
       (pinned ? '<span style="color:#16a34a;font-size:11px">🟢 exact pin</span><br>' : (!est ? '<span style="color:#2563eb;font-size:11px">🔵 village level</span><br>' : '') ) +
       '<a href="javascript:void(0)" onclick="mapOpenRecord(\''+r.id+'\')" style="color:#4338ca;font-weight:700">Open record →</a>';
@@ -4300,7 +4333,8 @@ let mapBoundaryRecId = null;   // record whose boundary card is open
 function mapBoundarySourceBadge(src){
   const m = { digitized: ['🖊️ Digitized (officer-traced)', 'background:#dcfce7;color:#166534'],
               estimated: ['📐 Estimated from recorded area — NOT a legal boundary', 'background:#fef3c7;color:#92400e'],
-              imported: ['📁 Imported (GeoJSON)', 'background:#dbeafe;color:#1e40af'] };
+              imported: ['📁 Imported (GeoJSON)', 'background:#dbeafe;color:#1e40af'],
+              document: ['🧭 Printed on document (4 corner coordinates)', 'background:#f3e8ff;color:#6b21a8'] };
   const it = m[src] || ['?', 'background:#f1f5f9;color:#475569'];
   return '<span class="chip" style="font-size:10px;' + it[1] + '">' + it[0] + '</span>';
 }
@@ -4328,9 +4362,9 @@ function mapDrawBoundaries(){
     if(!r.boundary || r.boundary.length < 3) return;
     const est = r.boundary_source === 'estimated';
     const poly = L.polygon(r.boundary, {
-      color: est ? '#6b7280' : (r.boundary_source === 'imported' ? '#2563eb' : '#16a34a'),
+      color: est ? '#6b7280' : (r.boundary_source === 'imported' ? '#2563eb' : (r.boundary_source === 'document' ? '#7c3aed' : '#16a34a')),
       weight: 2, dashArray: est ? '5,4' : null,
-      fillColor: est ? '#9ca3af' : (r.boundary_source === 'imported' ? '#3b82f6' : '#22c55e'),
+      fillColor: est ? '#9ca3af' : (r.boundary_source === 'imported' ? '#3b82f6' : (r.boundary_source === 'document' ? '#8b5cf6' : '#22c55e')),
       fillOpacity: 0.16
     });
     poly.on('click', (e)=>{ L.DomEvent.stopPropagation(e); mapSelectBoundaryRecord(r.id); });
@@ -5489,8 +5523,8 @@ async function showDocDetail(id, pushHistory=true){
       ${(()=>{
         const bnd = d.boundary;
         if(bnd && bnd.length >= 3){
-          const srcTxt = {digitized:'🖊️ Digitized by officer (traced on map)', estimated:'📐 Estimated from recorded area — not a legal boundary', imported:'📁 Imported from GeoJSON'}[d.boundary_source] || 'Boundary';
-          const srcStyle = {digitized:'background:#dcfce7;color:#166534', estimated:'background:#fef3c7;color:#92400e', imported:'background:#dbeafe;color:#1e40af'}[d.boundary_source] || 'background:#f1f5f9;color:#475569';
+          const srcTxt = {digitized:'🖊️ Digitized by officer (traced on map)', estimated:'📐 Estimated from recorded area — not a legal boundary', imported:'📁 Imported from GeoJSON', document:'🧭 Printed on the document (4 corner coordinates)'}[d.boundary_source] || 'Boundary';
+          const srcStyle = {digitized:'background:#dcfce7;color:#166534', estimated:'background:#fef3c7;color:#92400e', imported:'background:#dbeafe;color:#1e40af', document:'background:#f3e8ff;color:#6b21a8'}[d.boundary_source] || 'background:#f1f5f9;color:#475569';
           const c = mapRingCentroid(bnd), am = mapRingAreaM2(bnd);
           const areaTxt = (d.fields && d.fields.area && d.fields.area.value) ? String(d.fields.area.value) : '';
           let rows = bnd.map((p,i)=>'<tr><td style="padding:2px 8px 2px 0;font-weight:700">V'+(i+1)+'</td><td style="font-family:Consolas,monospace">'+p[0].toFixed(6)+'</td><td style="font-family:Consolas,monospace">'+p[1].toFixed(6)+'</td></tr>').join('');
@@ -6246,6 +6280,7 @@ async function startBulkBatch(){
     _bulkFiles.forEach(f => fd.append('files', f, f.name));
     fd.append('lang', (document.getElementById('bulkLang') || {}).value || '');
     fd.append('doc_type', (document.getElementById('bulkDocType') || {}).value || 'land_record');
+    fd.append('doc_kind', (document.getElementById('bulkKind') || {}).value || 'old');
     const r = await fetch(authUrl('/api/bulk/batches'), {method:'POST',
       headers: token ? {'Authorization':'Bearer '+token} : {}, body: fd});
     const d = await r.json();
@@ -6313,6 +6348,7 @@ async function loadBulkDetail(quiet){
   const fin = (d.done || 0) + (d.failed || 0), total = d.total || 0;
   document.getElementById('bulkDetailMeta').innerHTML =
     fin + '/' + total + ' processed' + (d.lang ? ' · lang: <b>' + escapeHtml(d.lang) + '</b>' : ' · auto-detect') +
+    (d.doc_kind === 'new' ? ' · 🧭 kind: <b>new (coordinates)</b>' : '') +
     ' · ' + (d.clean || 0) + ' clean row(s) ready to import' +
     (d.status === 'done' ? ' · <b style="color:#166534">बैच पूर्ण (finished)</b>' : ' · <b style="color:#1d4ed8">running…</b>');
   const btn = document.getElementById('bulkImportCleanBtn');
@@ -6333,6 +6369,8 @@ async function loadBulkDetail(quiet){
       const dup = v.duplicate_of ? '<div style="color:#b45309;font-size:10.5px">⚠️ duplicate of ' + escapeHtml(v.duplicate_of) + '</div>' : '';
       const scr = it.screening && it.screening.count
         ? '<div style="color:#7c3aed;font-size:10.5px;font-weight:700">🛡️ SA: ' + it.screening.count + ' court case(s) — ' + escapeHtml(it.screening.highest || '') + '</div>' : '';
+      const coo = (it.coords_found != null)
+        ? '<div style="color:#6b21a8;font-size:10.5px;font-weight:700">🧭 coordinates: ' + it.coords_found + '/4' + (it.coords_found === 4 ? ' → map boundary on import' : ' (boundary needs 4)') + '</div>' : '';
       const err = it.error ? '<div style="color:#b91c1c;font-size:10.5px">' + escapeHtml(it.error).slice(0, 120) + '</div>' : '';
       let actions = '';
       if(it.imported_doc_id){
@@ -6349,7 +6387,7 @@ async function loadBulkDetail(quiet){
         '<td style="padding:6px 8px">' + _bulkStatusChip(it.status) + '</td>' +
         '<td style="padding:6px 8px;font-size:11.5px">' + escapeHtml(_fv(f,'survey_number') || '—') + ' / ' + escapeHtml(_fv(f,'village') || '—') + '<br><span style="color:#475569">' + escapeHtml(_fv(f,'owner_name') || '—') + '</span></td>' +
         '<td style="padding:6px 8px">' + (it.mean_conf ? Math.round(it.mean_conf) + '%' : '—') + '</td>' +
-        '<td style="padding:6px 8px">' + vChip + (warns ? ' <span style="color:#92400e;font-size:10.5px">(' + warns + ' issue' + (warns>1?'s':'') + ')</span>' : '') + dup + scr + err + '</td>' +
+        '<td style="padding:6px 8px">' + vChip + (warns ? ' <span style="color:#92400e;font-size:10.5px">(' + warns + ' issue' + (warns>1?'s':'') + ')</span>' : '') + dup + scr + coo + err + '</td>' +
         '<td style="padding:6px 8px;white-space:nowrap">' + actions + '</td></tr>';
     }).join('') + '</table>';
 }
@@ -6368,7 +6406,9 @@ async function importBulkItem(iid, force){
   if(force && !confirm('This row is NOT clean (needs a look). Import it anyway into the verification queue?')) return;
   try{
     const d = await api('/api/bulk/items/' + iid + '/import', {method:'POST', body: JSON.stringify({force: !!force})});
-    alert('✅ Imported as record ' + d.doc_id + ' (pending review — Verification Officer approves it).');
+    alert('✅ Imported as record ' + d.doc_id + ' (pending review — Verification Officer approves it).' +
+      (d.coordinates && d.coordinates.boundary_set ? '\n🧭 4/4 coordinates applied — map boundary + pin set.' :
+       (d.coordinates ? '\n🧭 Only ' + (d.coordinates.corners||0) + '/4 coordinates readable — boundary not set; fix in verification.' : '')));
     loadBulkDetail(true); loadBulkBatches(true);
   }catch(e){ alert(e.message); }
 }

@@ -102,7 +102,8 @@ def init_db():
                          ("routing_reason", "TEXT"), ("routed_at", "REAL"),
                          ("ai_rescue_json", "TEXT"),
                          ("boundary_geojson", "TEXT"), ("boundary_source", "TEXT"),
-                         ("boundary_at", "REAL")]:
+                         ("boundary_at", "REAL"),
+                         ("doc_kind", "TEXT DEFAULT 'old'")]:
         try:
             c.execute("ALTER TABLE documents ADD COLUMN %s %s" % (col, typedef))
         except sqlite3.OperationalError:
@@ -475,13 +476,16 @@ def verify_audit_chain():
 
 # ---------- Documents ----------
 def save_upload(filename, mime, size, stored_path, uploaded_by, ocr_result, fields,
-                validation, dedup_key, doc_type="land_record", status=None):
+                validation, dedup_key, doc_type="land_record", status=None,
+                doc_kind="old"):
     doc_id = uuid.uuid4().hex[:12]
     if status is None:
         status = "pending_review" if validation["low_confidence_fields"] else (
             "auto_approved" if validation["verdict"] == "valid" else "pending_review")
     if doc_type not in DOC_TYPES:
         doc_type = "land_record"
+    if doc_kind not in ("old", "new"):
+        doc_kind = "old"
     c = _conn()
     cert_hash = cert_by = cert_at = None
     if status == "auto_approved":
@@ -491,13 +495,14 @@ def save_upload(filename, mime, size, stored_path, uploaded_by, ocr_result, fiel
     c.execute("""INSERT INTO documents
         (id, filename, stored_path, mime_type, file_size, uploaded_by, uploaded_at,
          ocr_text, mean_conf, languages, extracted_json, validation_json, verdict,
-         status, dedup_key, doc_type, reviewer_notes, cert_hash, cert_by, cert_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         status, dedup_key, doc_type, reviewer_notes, cert_hash, cert_by, cert_at,
+         doc_kind)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (doc_id, filename, stored_path, mime, size, uploaded_by, time.time(),
          ocr_result["full_text"], ocr_result["mean_conf"],
          json.dumps(ocr_result["detected_scripts"]), json.dumps(fields),
          json.dumps(validation), validation["verdict"], status, dedup_key,
-         doc_type, "", cert_hash, cert_by, cert_at))
+         doc_type, "", cert_hash, cert_by, cert_at, doc_kind))
     c.commit()
     c.close()
     return doc_id
@@ -521,8 +526,9 @@ def set_location(doc_id, lat, lon):
 def set_boundary(doc_id, coordinates, source, user):
     """Store a plot boundary polygon for a record.
     coordinates: [[lat, lon], ...] ring (>=4 points). source: digitized |
-    estimated | imported. Returns True on success."""
-    if source not in ("digitized", "estimated", "imported"):
+    estimated | imported | document (printed on a NEW-kind record).
+    Returns True on success."""
+    if source not in ("digitized", "estimated", "imported", "document"):
         raise ValueError("Invalid boundary source")
     c = _conn()
     c.execute("UPDATE documents SET boundary_geojson=?, boundary_source=?, boundary_at=? WHERE id=?",
@@ -594,7 +600,7 @@ def list_documents(limit=500, status=None):
     sql = ("SELECT id, filename, uploaded_by, uploaded_at, submitted_at, mean_conf, "
            "verdict, status, lat, lon, extracted_json, doc_type, reviewer_notes, "
            "routed_to, routed_to_name, routing_reason, "
-           "boundary_geojson, boundary_source FROM documents")
+           "boundary_geojson, boundary_source, doc_kind FROM documents")
     args = []
     if status:
         sql += " WHERE status = ?"

@@ -148,6 +148,12 @@ jobs:
           LR_ROOT: ${{ github.workspace }}/extracted
           LR_BASE: http://127.0.0.1:8000
 
+      - name: Document Kind (new-format coordinates -> map boundary)
+        run: python ../tests/test_newkind.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
       - name: Full system battery (56 checks incl. multilingual OCR e2e)
         run: python ../tests/full_system_test.py
         env:

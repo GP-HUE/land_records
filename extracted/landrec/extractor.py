@@ -268,6 +268,82 @@ def _maybe_bidi_normalize(text: str) -> str:
     return "\n".join(out_lines)
 
 
+# --------------------------------------------------------------------------
+# NEW-kind document corner coordinates (v3.13)
+# --------------------------------------------------------------------------
+# A coordinate pair as printed on new-format records, e.g.
+#   "23.17642 N, 80.01231 E"  "23.17642° N 80.01231° E"  "23.17642, 80.01231"
+# The gap between the two numbers tolerates OCR letter junk ("23.35 WN, 77.35")
+# — up to 10 non-digit characters; hemisphere hints come from N/S letters in
+# that gap and an E/W letter right after the longitude.
+_COORD_RE = re.compile(
+    r"(?<![\d.])(-?\d{1,3}(?:\.\d+)?)"                    # latitude number
+    r"([^\d\-]{0,10}?)"                                      # gap (dir letters/junk)
+    r"(-?\d{1,3}(?:\.\d+)?)\s*(?:°|º|deg)?\s*([EW])?",      # longitude + dir
+    re.IGNORECASE)
+
+
+def parse_coordinate(value: str):
+    """Parse a printed corner coordinate into (lat, lon). Returns None when
+    the text does not hold a plausible lat/lon pair (bad range = None, which
+    pushes the record into the review queue instead of a wrong map point)."""
+    if not value:
+        return None
+    m = _COORD_RE.search(str(value))
+    if not m:
+        return None
+    try:
+        lat, lon = float(m.group(1)), float(m.group(3))
+    except (TypeError, ValueError):
+        return None
+    gap = (m.group(2) or "").upper()
+    ns = re.findall(r"[NS]", gap)            # last hemisphere letter wins
+    if ns and ns[-1] == "S" and lat > 0:
+        lat = -lat
+    ew = (m.group(4) or "").upper()          # only a letter AFTER lon counts —
+    if ew == "W" and lon > 0:                # stray junk in the gap (e.g. the W
+        lon = -lon                           # in "23.35 WN,") must not flip it
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None
+    return (round(lat, 7), round(lon, 7))
+
+
+def extract_coordinates(ocr_result: dict) -> dict:
+    """Read the four printed corner coordinates (NEW document kind only).
+    Same label machinery + confidence model as extract_fields; a value that
+    does not parse as a lat/lon pair is kept (officer can correct it) but
+    its confidence is capped so the record lands in the review queue."""
+    raw_text = _norm_text(ocr_result["full_text"])
+    text = _maybe_bidi_normalize(raw_text)
+    rtl = text != raw_text
+    mean_ocr_conf = ocr_result["mean_conf"] / 100.0
+    fields = {}
+    for fid, _display, _labels in common.COORD_FIELD_DEFS:
+        remainder, quality = _find_value(text, fid, rtl=rtl)
+        if not remainder:
+            continue
+        value = _strip_junk(remainder)
+        if not value:
+            continue
+        # a coordinate pair is short — never let it swallow header junk
+        value = re.split(r"\s{2,}", value)[0][:60]
+        if len(value.split()) > 8:
+            value = " ".join(value.split()[:8])
+        fields[fid] = {"value": value, "quality": quality}
+
+    for fid, f in fields.items():
+        wc = _value_word_conf(f["value"], ocr_result)
+        base = f.get("quality", 0.5)
+        conf = 0.6 * wc + 0.4 * base
+        if wc == 0.0:
+            conf = 0.5 * mean_ocr_conf + 0.5 * base
+        # unparseable coordinates MUST be eyeballed by an officer
+        if parse_coordinate(f["value"]) is None:
+            conf = min(conf, 0.5)
+        f["confidence"] = round(min(0.99, conf), 3)
+    return fields
+
+
 def extract_fields(ocr_result: dict) -> dict:
     raw_text = _norm_text(ocr_result["full_text"])
     text = _maybe_bidi_normalize(raw_text)

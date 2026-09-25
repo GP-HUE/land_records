@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-from . import courtlink, store
+from . import courtlink, extractor, store
 
 log = logging.getLogger("landrec.bulk")
 
@@ -32,6 +32,7 @@ ITEM_STATUSES = ("queued", "processing", "done", "failed")
 BULK_DIR = os.path.join(store.DATA_DIR, "bulk")
 
 _ANALYZER = None          # injected by main.py: _analyze_document
+_GEO_APPLIER = None       # injected by main.py: _apply_document_coordinates
 _worker = None
 _worker_lock = threading.Lock()
 
@@ -42,14 +43,25 @@ def set_analyzer(fn):
     _ANALYZER = fn
 
 
+def set_geo_applier(fn):
+    """main.py injects the NEW-kind coordinate -> map boundary helper."""
+    global _GEO_APPLIER
+    _GEO_APPLIER = fn
+
+
 def init_db():
     os.makedirs(BULK_DIR, exist_ok=True)
     c = store._conn()
     c.execute("""CREATE TABLE IF NOT EXISTS ocr_batches (
         id TEXT PRIMARY KEY, owner_id TEXT, owner_email TEXT,
-        lang TEXT, doc_type TEXT, status TEXT DEFAULT 'queued',
+        lang TEXT, doc_type TEXT, doc_kind TEXT DEFAULT 'old',
+        status TEXT DEFAULT 'queued',
         total INT, done INT DEFAULT 0, failed INT DEFAULT 0,
         imported INT DEFAULT 0, created_at REAL, updated_at REAL)""")
+    try:  # migration for databases created before v3.13
+        c.execute("ALTER TABLE ocr_batches ADD COLUMN doc_kind TEXT DEFAULT 'old'")
+    except Exception:  # noqa: BLE001 - column already there
+        pass
     c.execute("""CREATE TABLE IF NOT EXISTS ocr_batch_items (
         id TEXT PRIMARY KEY, batch_id TEXT, filename TEXT, stored_path TEXT,
         size INT, status TEXT DEFAULT 'queued', lang TEXT,
@@ -99,19 +111,22 @@ def _bump_batch(bid):
     c.close()
 
 
-def create_batch(files, lang, doc_type, user):
+def create_batch(files, lang, doc_type, user, doc_kind="old"):
     """files: list of (filename, bytes, ext).  Returns the created batch."""
+    if doc_kind not in ("old", "new"):
+        doc_kind = "old"
     bid = uuid.uuid4().hex[:12]
     ts = time.time()
     bdir = os.path.join(BULK_DIR, bid)
     os.makedirs(bdir, exist_ok=True)
     c = store._conn()
     c.execute("""INSERT INTO ocr_batches
-        (id, owner_id, owner_email, lang, doc_type, status, total,
+        (id, owner_id, owner_email, lang, doc_type, doc_kind, status, total,
          done, failed, imported, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
               (bid, user["id"], user.get("email") or "", (lang or "").strip(),
-               doc_type or "land_record", "processing", len(files), 0, 0, 0, ts, ts))
+               doc_type or "land_record", doc_kind,
+               "processing", len(files), 0, 0, 0, ts, ts))
     for fn, data, ext in files:
         iid = uuid.uuid4().hex[:12]
         path = os.path.join(bdir, iid + ext)
@@ -161,6 +176,7 @@ def get_batch(bid, user, with_items=True):
                          "ORDER BY created_at, filename", (bid,)).fetchall()
         c.close()
         items = []
+        new_kind = (batch.get("doc_kind") or "old") == "new"
         for r in rows:
             it = dict(r)
             fields = json.loads(it.pop("fields_json") or "{}")
@@ -170,6 +186,11 @@ def get_batch(bid, user, with_items=True):
             it["validation"] = val
             it["screening"] = scr
             it.pop("ocr_text", None)      # heavy; not needed in the UI list
+            if new_kind:
+                it["coords_found"] = sum(
+                    1 for i in range(1, 5)
+                    if extractor.parse_coordinate(
+                        (fields.get("coordinate_%d" % i) or {}).get("value") or ""))
             items.append(it)
         batch["items"] = items
         batch["clean"] = sum(1 for it in items if _is_clean(it))
@@ -222,13 +243,14 @@ def _process_item(item):
         with open(item["stored_path"], "rb") as fh:
             data = fh.read()
         langs = [item["lang"]] if item.get("lang") else None
-        a = _ANALYZER(data, item["filename"], langs=langs)
+        batch = _batch_row(item["batch_id"]) or {}
+        a = _ANALYZER(data, item["filename"], langs=langs,
+                      doc_kind=batch.get("doc_kind") or "old")
         unreadable = a["quality"].get("unreadable")
         # SA CourtLink instant screen for ADMIN-owned batches (admin-only
         # feature — operator batches are never screened)
         screening = None
         try:
-            batch = _batch_row(item["batch_id"]) or {}
             owner = store.get_user(batch.get("owner_id") or "")
             if owner and owner.get("role") == "admin" and not unreadable:
                 screening = courtlink.screen_fields(a["fields"])
@@ -318,10 +340,18 @@ def import_item(iid, user, force=False):
                   "mean_conf": item.get("mean_conf") or 0,
                   "detected_scripts": json.loads(item.get("langs_detected") or "[]"),
                   "num_pages": 1}
+    doc_kind = batch.get("doc_kind") or "old"
     doc_id = store.save_upload(
         item["filename"], None, item.get("size"), item["stored_path"], user["id"],
         ocr_result, fields, validation, item.get("dedup_key") or None,
-        doc_type=batch.get("doc_type") or "land_record", status="pending_review")
+        doc_type=batch.get("doc_type") or "land_record", status="pending_review",
+        doc_kind=doc_kind)
+    geo = None
+    if doc_kind == "new" and _GEO_APPLIER is not None:
+        try:  # NEW-kind: printed corner coordinates -> map boundary + pin
+            geo = _GEO_APPLIER(doc_id, fields, user)
+        except Exception:  # noqa: BLE001 — never let geo break an import
+            log.exception("bulk geo-apply failed for %s", doc_id)
     # audit parity with single uploads: every record starts with
     # document_created; the bulk_import stamp explains HOW it arrived
     store.audit(doc_id, user["id"], user.get("email") or "",
@@ -335,7 +365,10 @@ def import_item(iid, user, force=False):
     c.commit()
     c.close()
     _bump_batch(item["batch_id"])
-    return {"imported": True, "doc_id": doc_id, "status": "pending_review"}
+    out = {"imported": True, "doc_id": doc_id, "status": "pending_review"}
+    if geo is not None:
+        out["coordinates"] = geo
+    return out
 
 
 def import_clean(bid, user):
@@ -366,7 +399,8 @@ def report_csv(bid, user):
         s = str(v if v is not None else "")
         return '"' + s.replace('"', '""') + '"'
     lines = ["batch,file,status,verdict,confidence,survey,village,owner,"
-             "warnings,duplicate_of,sa_screening_matches,imported_doc_id,error"]
+             "warnings,duplicate_of,sa_screening_matches,imported_doc_id,error,"
+             "coords_found"]
     for it in data["items"]:
         f, v = it.get("fields") or {}, it.get("validation") or {}
         scr = it.get("screening") or {}
@@ -376,5 +410,6 @@ def report_csv(bid, user):
             _field_value(f, "survey_number"), _field_value(f, "village"),
             _field_value(f, "owner_name"), len(v.get("issues") or []),
             v.get("duplicate_of") or "", scr.get("count") if scr else "",
-            it.get("imported_doc_id") or "", (it.get("error") or "")[:120]]))
+            it.get("imported_doc_id") or "", (it.get("error") or "")[:120],
+            it.get("coords_found") if it.get("coords_found") is not None else ""]))
     return "\n".join(lines) + "\n"

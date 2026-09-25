@@ -179,6 +179,36 @@ LABEL_PATTERNS = {}
 for fid, _display, labels in FIELD_DEFS:
     LABEL_PATTERNS[fid] = sorted(labels, key=len, reverse=True)
 
+# ---------- NEW-kind document corner coordinates (v3.13) ----------
+# New-format land records carry the GPS coordinates of the plot's four
+# corners PRINTED on the document.  These fields live OUTSIDE FIELD_DEFS on
+# purpose: they are only read when the user declares the upload as the NEW
+# document kind — old-kind processing stays byte-for-byte identical.  They
+# are still registered in FIELD_LABELS / LABEL_PATTERNS so the extraction
+# machinery and the validator can handle them like any other field.
+COORD_FIELD_DEFS = [
+    ("coordinate_1", "Coordinate 1 (निर्देशांक 1)", [
+        "coordinate 1", "coordinates 1", "coordinate-1", "coord 1", "coord-1",
+        "corner 1", "corner-1", "point 1", "gps 1", "gps coordinate 1",
+        "निर्देशांक 1", "निर्देशांक-1", "कोऑर्डिनेट 1", "कोआर्डिनेट 1"]),
+    ("coordinate_2", "Coordinate 2 (निर्देशांक 2)", [
+        "coordinate 2", "coordinates 2", "coordinate-2", "coord 2", "coord-2",
+        "corner 2", "corner-2", "point 2", "gps 2", "gps coordinate 2",
+        "निर्देशांक 2", "निर्देशांक-2", "कोऑर्डिनेट 2", "कोआर्डिनेट 2"]),
+    ("coordinate_3", "Coordinate 3 (निर्देशांक 3)", [
+        "coordinate 3", "coordinates 3", "coordinate-3", "coord 3", "coord-3",
+        "corner 3", "corner-3", "point 3", "gps 3", "gps coordinate 3",
+        "निर्देशांक 3", "निर्देशांक-3", "कोऑर्डिनेट 3", "कोआर्डिनेट 3"]),
+    ("coordinate_4", "Coordinate 4 (निर्देशांक 4)", [
+        "coordinate 4", "coordinates 4", "coordinate-4", "coord 4", "coord-4",
+        "corner 4", "corner-4", "point 4", "gps 4", "gps coordinate 4",
+        "निर्देशांक 4", "निर्देशांक-4", "कोऑर्डिनेट 4", "कोआर्डिनेट 4"]),
+]
+COORD_FIELD_IDS = [f[0] for f in COORD_FIELD_DEFS]
+for _fid, _disp, _labels in COORD_FIELD_DEFS:
+    FIELD_LABELS[_fid] = _disp
+    LABEL_PATTERNS[_fid] = sorted(_labels, key=len, reverse=True)
+
 # ---------- Land classification vocabulary (Hindi + English) ----------
 LAND_CLASSES = [
     ("Irrigated",      ["सिंचित", "sichit", "irrigated", "irrigated land",

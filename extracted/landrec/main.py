@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.12.1"
+APP_VERSION = "3.13.0"
 
 
 def _warmup_ocr_worker():
@@ -385,11 +385,15 @@ def _check_transfer_hint(fields: dict, validation: dict):
         validation["verdict"] = "review"
 
 
-def _analyze_document(data: bytes, filename: str, langs: list = None) -> dict:
+def _analyze_document(data: bytes, filename: str, langs: list = None,
+                      doc_kind: str = "old") -> dict:
     """The OCR pipeline WITHOUT saving a document: OCR -> extract -> AI
     rescue/learning -> validation -> duplicate & transfer checks.  Shared by
     the single-upload path (_run_pipeline) and the Bulk OCR background worker
-    (bulkocr), so both behave identically."""
+    (bulkocr), so both behave identically.
+
+    doc_kind="new" additionally reads the four printed corner coordinates —
+    old-kind processing stays exactly the classic pipeline."""
     ocr_result = ocrpool.run_ocr(data, filename, langs=langs)
     fields = extractor.extract_fields(ocr_result)
     fields = store.apply_learned(fields)
@@ -412,7 +416,29 @@ def _analyze_document(data: bytes, filename: str, langs: list = None) -> dict:
             fields = rescue_info["fields"]
             quality = rescue_info["after"]
 
+    # ---- NEW document kind: read the four printed corner coordinates
+    # (merged BEFORE validation so a weak/unparseable coordinate is flagged
+    # for review like any other low-confidence field)
+    coord_meta = None
+    if doc_kind == "new":
+        coords = extractor.extract_coordinates(ocr_result)
+        fields.update(coords)
+        parsed = sum(1 for f in coords.values()
+                     if extractor.parse_coordinate(f.get("value", "")))
+        coord_meta = {"kind": "new", "found": parsed, "complete": parsed == 4,
+                      "read": len(coords)}
+
     validation = validator.validate(fields, scripts=ocr_result["detected_scripts"])
+    if coord_meta and not coord_meta["complete"]:
+        validation["issues"].append({
+            "field": "coordinates", "severity": "review",
+            "msg": "NEW-kind record: only %d/4 corner coordinates readable — "
+                   "map boundary needs all four; verify them before approval"
+                   % coord_meta["found"]})
+        if "coordinates" not in validation["low_confidence_fields"]:
+            validation["low_confidence_fields"].append("coordinates")
+        if validation["verdict"] == "valid":
+            validation["verdict"] = "review"
     dedup_key = validator.duplicate_key(fields)
     dup = store.check_duplicate(dedup_key) if dedup_key else None
     if dup:
@@ -423,16 +449,46 @@ def _analyze_document(data: bytes, filename: str, langs: list = None) -> dict:
     if not dup:
         _check_transfer_hint(fields, validation)
     return {"ocr": ocr_result, "fields": fields, "validation": validation,
-            "quality": quality, "rescue": rescue_info, "dedup_key": dedup_key}
+            "quality": quality, "rescue": rescue_info, "dedup_key": dedup_key,
+            "coordinates": coord_meta}
 
 
 bulkocr.set_analyzer(_analyze_document)   # bulk worker reuses the same pipeline
 
 
+def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
+    """NEW-kind record: turn the four printed corner coordinates into the
+    record's map boundary (source 'document') and set its exact GIS pin at
+    the polygon centroid.  Applied automatically on upload / bulk import /
+    verification so the Map tab always reflects the latest corrected values."""
+    pts = []
+    for i in range(1, 5):
+        f = fields.get("coordinate_%d" % i) or {}
+        ll = extractor.parse_coordinate(f.get("value", ""))
+        if ll:
+            pts.append((i, ll))
+    if len(pts) != 4:
+        return {"boundary_set": False, "pin": None,
+                "corners": len(pts)}
+    ring = [[lat, lon] for _i, (lat, lon) in pts]      # in printed order 1-4
+    store.set_boundary(doc_id, ring, "document", user)  # audits boundary_set
+    clat = round(sum(p[1][0] for p in pts) / 4.0, 7)
+    clon = round(sum(p[1][1] for p in pts) / 4.0, 7)
+    store.set_location(doc_id, clat, clon)
+    store.audit(doc_id, user["id"], user["email"], "location_set",
+                "auto: centroid of the 4 printed corner coordinates "
+                "(new-kind record)")
+    return {"boundary_set": True, "pin": [clat, clon], "corners": 4}
+
+
+bulkocr.set_geo_applier(_apply_document_coordinates)
+
+
 def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
                   stored_path: str = None, mime: str = None, size: int = None,
-                  langs: list = None, doc_type: str = "land_record") -> dict:
-    a = _analyze_document(data, filename, langs=langs)
+                  langs: list = None, doc_type: str = "land_record",
+                  doc_kind: str = "old") -> dict:
+    a = _analyze_document(data, filename, langs=langs, doc_kind=doc_kind)
     ocr_result = a["ocr"]
     fields = a["fields"]
     validation = a["validation"]
@@ -449,9 +505,13 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
         routed_officer = store.pick_least_loaded_officer()
     doc_id = store.save_upload(filename, mime, size, stored_path, uploaded_by["id"],
                                ocr_result, fields, validation, a["dedup_key"],
-                               doc_type=doc_type, status=forced_status)
+                               doc_type=doc_type, status=forced_status,
+                               doc_kind=doc_kind)
     store.audit(doc_id, uploaded_by["id"], uploaded_by["email"],
                 "document_created", filename)
+    geo = None
+    if doc_kind == "new":
+        geo = _apply_document_coordinates(doc_id, fields, uploaded_by)
     ai_out = None
     if rescue_info is not None or quality["unreadable"]:
         ai_out = {"rescued": bool(rescue_info and rescue_info["rescued"]),
@@ -481,13 +541,20 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
                     "ai_rescue", "rescued=%s unreadable=%s key %s->%s" % (
                         ai_out["rescued"], ai_out["unreadable"],
                         ai_out.get("key_before"), ai_out.get("key_after")))
-    return {"id": doc_id, "filename": filename,
-            "ocr": {"mean_conf": ocr_result["mean_conf"],
-                    "languages": ocr_result["detected_scripts"],
-                    "pages": ocr_result["num_pages"],
-                    "text_preview": ocr_result["full_text"][:1500]},
-            "fields": fields, "validation": validation,
-            "ai": ai_out}
+    out = {"id": doc_id, "filename": filename,
+           "ocr": {"mean_conf": ocr_result["mean_conf"],
+                   "languages": ocr_result["detected_scripts"],
+                   "pages": ocr_result["num_pages"],
+                   "text_preview": ocr_result["full_text"][:1500]},
+           "fields": fields, "validation": validation,
+           "ai": ai_out}
+    if doc_kind == "new":
+        coord_meta = a.get("coordinates") or {}
+        out["coordinates"] = {"kind": "new",
+                              "found": coord_meta.get("found", 0),
+                              "boundary_set": bool((geo or {}).get("boundary_set")),
+                              "pin": (geo or {}).get("pin")}
+    return out
 
 
 def _maybe_sa_court_screen(result: dict, user: dict):
@@ -508,9 +575,12 @@ def _maybe_sa_court_screen(result: dict, user: dict):
 @app.post("/api/process")
 async def process(request: Request, file: UploadFile = File(...),
                   lang: str = Form(""), doc_type: str = Form("land_record"),
+                  doc_kind: str = Form("old"),
                   user: dict = Depends(require_role("operator"))):
     ip = request.client.host if request.client else "?"
     _rate_limit("ocr:" + ip, 10, 60)   # OCR is CPU-heavy — max 10/min/IP
+    if doc_kind not in ("old", "new"):
+        raise HTTPException(400, "doc_kind must be 'old' or 'new'")
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in store.ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"Unsupported file type '{ext}'. "
@@ -527,7 +597,7 @@ async def process(request: Request, file: UploadFile = File(...),
         result = _run_pipeline(data, file.filename or "upload", user,
                                stored_path=stored_path, mime=file.content_type,
                                size=len(data), langs=_parse_lang(lang),
-                               doc_type=doc_type)
+                               doc_type=doc_type, doc_kind=doc_kind)
     except Exception:  # noqa: BLE001
         log.exception("Processing failed for %s", file.filename)
         if os.path.exists(stored_path):
@@ -551,6 +621,7 @@ def ocr_progress(user: dict = Depends(get_current_user)):
 
 @app.post("/api/process/sample/{name}")
 def process_sample(name: str, lang: str = Query(""), doc_type: str = Query("land_record"),
+                   doc_kind: str = Query("old"),
                    request: Request = None,
                    user: dict = Depends(require_role("operator"))):
     # (request is auto-injected by FastAPI; default only for optional safety)
@@ -564,9 +635,12 @@ def process_sample(name: str, lang: str = Query(""), doc_type: str = Query("land
         raise HTTPException(400, "Invalid sample name")
     if not os.path.exists(path) or not os.path.isfile(path):
         raise HTTPException(404, "Sample not found")
+    if doc_kind not in ("old", "new"):
+        raise HTTPException(400, "doc_kind must be 'old' or 'new'")
     with open(path, "rb") as fh:
         data = fh.read()
-    result = _run_pipeline(data, name, user, langs=_parse_lang(lang), doc_type=doc_type)
+    result = _run_pipeline(data, name, user, langs=_parse_lang(lang),
+                           doc_type=doc_type, doc_kind=doc_kind)
     _maybe_sa_court_screen(result, user)   # SA CourtLink: instant for admin
     return result
 
@@ -580,9 +654,12 @@ def process_sample(name: str, lang: str = Query(""), doc_type: str = Query("land
 @app.post("/api/bulk/batches")
 async def bulk_create(request: Request, files: list[UploadFile] = File(...),
                       lang: str = Form(""), doc_type: str = Form("land_record"),
+                      doc_kind: str = Form("old"),
                       user: dict = Depends(require_role("operator"))):
     ip = request.client.host if request.client else "?"
     _rate_limit("bulk:" + ip, 8, 60)          # intake is light; OCR is queued
+    if doc_kind not in ("old", "new"):
+        raise HTTPException(400, "doc_kind must be 'old' or 'new'")
     if not files:
         raise HTTPException(400, "Attach at least one scan file")
     if len(files) > bulkocr.MAX_BATCH_FILES:
@@ -602,7 +679,7 @@ async def bulk_create(request: Request, files: list[UploadFile] = File(...),
                                      f"{store.MAX_UPLOAD_BYTES // (1024*1024)} MB limit")
         prepared.append((f.filename or "scan", data, ext))
     try:
-        return bulkocr.create_batch(prepared, lang, doc_type, user)
+        return bulkocr.create_batch(prepared, lang, doc_type, user, doc_kind=doc_kind)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -923,7 +1000,13 @@ def verify(doc_id: str, payload: dict, user: dict = Depends(require_role("verifi
         raise HTTPException(404, "Not found")
     if doc.get("routed_to"):
         store.clear_routing(doc_id, user)
-    return {"id": doc_id, "fields": fields, "status": "verified"}
+    out = {"id": doc_id, "fields": fields, "status": "verified"}
+    if (doc.get("doc_kind") or "old") == "new":
+        try:  # officer may have corrected coordinates — re-derive the map
+            out["coordinates"] = _apply_document_coordinates(doc_id, fields, user)
+        except Exception:  # noqa: BLE001 — geo must never break verification
+            log.exception("coordinate re-apply failed for %s", doc_id)
+    return out
 
 
 @app.get("/api/queue/loads")
@@ -1373,6 +1456,7 @@ def map_records(user: dict = Depends(get_current_user)):
             "lat": d.get("lat"), "lon": d.get("lon"),
             "boundary": _parse_boundary(d.get("boundary_geojson")),
             "boundary_source": d.get("boundary_source"),
+            "kind": d.get("doc_kind") or "old",
         })
     return {"records": out}
 
@@ -2555,8 +2639,11 @@ def audit_doc(doc_id: str, user: dict = Depends(require_role("verifier"))):
 
 @app.get("/api/fields")
 def field_metadata(user: dict = Depends(get_current_user)):
-    return {"fields": [{"id": f[0], "label": f[1]} for f in common.FIELD_DEFS],
+    return {"fields": [{"id": f[0], "label": f[1]} for f in common.FIELD_DEFS] +
+                      [{"id": f[0], "label": f[1]} for f in common.COORD_FIELD_DEFS],
             "verify_threshold": validator.VERIFY_THRESHOLD,
+            "doc_kinds": {"old": "Old — standard paper record",
+                          "new": "New — printed corner coordinates"},
             "roles": {r: auth.ROLE_LABELS[r] for r in auth.ROLES}}
 
 

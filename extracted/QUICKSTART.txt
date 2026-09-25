@@ -3,6 +3,49 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.13.0 (26-Sep-2026) — DOCUMENT KIND: NEW-FORMAT COORDINATES → MAP
+Legacy paper records carry no GPS, so the map could only geocode their
+village/district TEXT (blue dot / grey district estimate). New-format land
+records print the GPS coordinates of the plot's four corners right on the
+paper — and now the system reads them.
+### 1) Document Kind dropdown — Upload tab AND Bulk OCR tab
+  * Pick "पुराना / Old" (default — pipeline stays byte-for-byte the classic
+    one) or "नया / New" (has printed corner coordinates)
+  * Old kind: nothing changes anywhere — extraction, validation, verdicts,
+    map behaviour and tests are untouched
+### 2) New kind: OCR reads 4 more fields — Coordinate 1…4
+  * Label-driven extraction (Coordinate 1 / निर्देशांक 1 / corner/point/gps
+    synonyms) with the same per-field confidence model as every other field
+  * Junk-tolerant lat/lon parser (N/S/E/W letters, ° symbols, stray OCR
+    letter noise like "23.35 WN, 77.35"); out-of-range or unreadable values
+    are kept for the officer but capped at review confidence — a coordinate
+    is never silently guessed
+### 3) Coordinates become the map automatically
+  * All four corners parse → stored as the record's boundary polygon with
+    the new provenance source "🧭 Printed on document" (purple on the map),
+    plus an exact pin at the polygon centroid — no geocoding needed at all
+  * Works identically from a single upload AND every imported Bulk OCR row
+  * A verifier correcting a misread coordinate triggers automatic
+    re-derivation of boundary + pin on verify — map always matches the
+    verified values
+  * Partial read (e.g. 3/4 corners legible): no boundary, verdict forced to
+    review, an explicit "coordinates" issue guides the officer to supply
+    the missing corner
+### 4) Safety + parity
+  * doc_kind is validated (old|new) on every intake endpoint, stored on the
+    record, stamped in audits (boundary_set source=document + location_set
+    auto-centroid), shown in the bulk review table (🧭 n/4 chip) and CSV
+  * SA CourtLink, AI rescue, duplicate checks, learning — all behave
+    exactly as before on both kinds (admin new-kind uploads still get the
+    instant stay-order screen AND the purple boundary in one shot)
+  * 3 generated demo scans (full 4-corner, partial torn-corner, Hindi) in
+    samples/; new suite tests/test_newkind.py = 60 checks, all green.
+### Judge one-liner
+"Old records we geocode by village text; NEW-format records print their
+four corner GPS coordinates — so we read those with OCR and draw the true
+parcel boundary automatically, purple 'printed on document' provenance and
+a centroid pin, re-derived the moment a verifier corrects a digit."
+
 ## WHAT'S NEW IN v3.12.1 (25-Sep-2026) — BULK OCR AUDIT PARITY
 A bulk-imported record's audit trail now opens with the same
 'document_created' stamp every single upload gets, followed by the
