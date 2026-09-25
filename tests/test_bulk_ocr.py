@@ -154,7 +154,7 @@ check("A8 pre-upload a rampur record for the duplicate check", s0 == 200 and d0.
 print("=" * 70)
 print("B. Batch A (admin, eng, 8 mixed files incl. a blank scan)")
 print("=" * 70)
-SURVEY = 501 + int(time.time()) % 400
+SURVEY = 30000 + int(time.time() * 7) % 60000   # effectively unique per run, even on a reused DB
 bulktest_bytes = make_bulktest_scan(SURVEY)
 filesA = [("english_jamabandi_sample.png", sample("english_jamabandi_sample.png")),
           ("khatauni_rampur_2025.png", sample("khatauni_rampur_2025.png")),
@@ -232,6 +232,8 @@ else:
         s4, d4 = req("GET", "/api/documents/" + doc_id + "/audit", tok=ADMIN)
         acts = [a.get("action") for a in (d4 or {}).get("audit", [])]
         check("C4 import is recorded as bulk_import in the audit trail", "bulk_import" in acts, acts)
+        check("C4b audit parity: document_created stamp is present too",
+              "document_created" in acts and acts.index("document_created") < acts.index("bulk_import"), acts)
     s, d = req("POST", "/api/bulk/batches/" + BA + "/import", tok=ADMIN, data={})
     check("C5 running import-all-clean again imports nothing new", s == 200 and d.get("imported") == 0, d)
     blank = by_name(BATCHA, "bad_blank") or {}

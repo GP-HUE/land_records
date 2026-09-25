@@ -3,6 +3,12 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.12.1 (25-Sep-2026) — BULK OCR AUDIT PARITY
+A bulk-imported record's audit trail now opens with the same
+'document_created' stamp every single upload gets, followed by the
+'bulk_import' stamp that names its BATCH — identical history shape no
+matter how a record arrived. Bulk suite 48/48.
+
 ## WHAT'S NEW IN v3.12.0 (25-Sep-2026) — BULK OCR: MANY SCANS, ONE QUEUE
 The Upload tab digitizes one scan at a time; a digitization drive has
 hundreds. The new 📚 Bulk OCR tab processes a whole pile at once.

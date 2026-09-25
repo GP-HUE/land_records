@@ -322,6 +322,10 @@ def import_item(iid, user, force=False):
         item["filename"], None, item.get("size"), item["stored_path"], user["id"],
         ocr_result, fields, validation, item.get("dedup_key") or None,
         doc_type=batch.get("doc_type") or "land_record", status="pending_review")
+    # audit parity with single uploads: every record starts with
+    # document_created; the bulk_import stamp explains HOW it arrived
+    store.audit(doc_id, user["id"], user.get("email") or "",
+                "document_created", item["filename"])
     store.audit(doc_id, user["id"], user.get("email") or "", "bulk_import",
                 "imported via %s (bulk OCR batch %s)" %
                 ("BATCH-" + (item["batch_id"] or "")[:6].upper(), item["batch_id"]))

@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.12.0"
+APP_VERSION = "3.12.1"
 
 
 def _warmup_ocr_worker():
