@@ -1166,6 +1166,7 @@
     <!-- Government Tab Navigation -->
     <div class="tabs">
       <button class="tab active" data-tab="upload">📤 अपलोड (Upload)</button>
+      <button class="tab" data-tab="bulk" id="tabBulk">📚 बल्क OCR (Bulk OCR)</button>
       <button class="tab" data-tab="search" id="tabSearch">🔍 खोज (Search)</button>
       <button class="tab" data-tab="dashboard">📊 डैशबोर्ड (Dashboard)</button>
       <button class="tab" data-tab="documents">🗂️ अभिलेख सूची (Records)</button>
@@ -1356,6 +1357,78 @@
       </div>
 
       <!-- ==================== TAB: SEARCH (Viewer workspace / public catalog) ==================== -->
+      <!-- ==================== 📚 BULK OCR TAB (v3.12) ==================== -->
+      <div id="tab-bulk" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">📚 बल्क OCR — एक साथ कई स्कैन अपलोड करें (Bulk OCR — many scans at once)</h3>
+            <span class="chip">up to 25 files / batch · background queue · refresh-safe</span>
+          </div>
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;font-size:12.5px;color:#1e40af;margin-bottom:12px">
+            ⚡ प्रतिपादन टिप: <b>एक ही दस्तावेज़ प्रकार + एक ही भाषा</b> के बैच सबसे तेज़ और सबसे सटीक होते हैं (One document type + one language per batch is ~2× faster and more accurate). The queue keeps working even if you switch tabs.
+          </div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">
+            <div class="formfield" style="min-width:240px">
+              <label class="field-label" for="bulkLang">🌐 भाषा / Language</label>
+              <select id="bulkLang">
+                <option value=""> Auto-detect (slower — मिश्रित बैच)</option>
+                <option value="eng">English — अंग्रेज़ी</option>
+                <option value="hin">हिन्दी — Hindi</option>
+                <option value="tam">தமிழ் — Tamil</option>
+                <option value="tel">తెలుగు — Telugu</option>
+                <option value="ben">বাংলা — Bengali</option>
+                <option value="guj">ગુજરાતી — Gujarati</option>
+                <option value="pan">ਪੰਜਾਬੀ — Punjabi</option>
+                <option value="ori">ଓଡ଼ିଆ — Odia</option>
+                <option value="kan">ಕನ್ನಡ — Kannada</option>
+                <option value="mal">മലയാളം — Malayalam</option>
+                <option value="urd">اردو — Urdu</option>
+              </select>
+            </div>
+            <div class="formfield" style="min-width:240px">
+              <label class="field-label" for="bulkDocType">📑 दस्तावेज़ प्रकार / Document type</label>
+              <select id="bulkDocType">
+                <option value="land_record">Land Record (Khatauni / ROR / 7-12)</option>
+                <option value="mutation">Mutation Record (Namantaran / Ferfar)</option>
+                <option value="sale_deed">Sale Deed (Registry / Conveyance)</option>
+                <option value="tax_receipt">Tax Receipt (Lagan / Revenue Slip)</option>
+              </select>
+            </div>
+          </div>
+          <div class="drop-zone" id="bulkDrop" onclick="document.getElementById('bulkFileInput').click()">
+            <div class="drop-icon">🗂️</div>
+            <div style="font-size:15px"><b>एक साथ कई फाइलें छोड़ें</b> या चुनने के लिए क्लिक करें (drop up to 25 scans)</div>
+            <div style="color:var(--muted);font-size:12px;margin-top:6px">PDF, JPG, PNG, TIFF · max 20 MB each · बैच कतार में background में प्रोसेस होता है</div>
+            <input type="file" id="bulkFileInput" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" onchange="bulkFilesPicked(this)">
+          </div>
+          <div id="bulkFileList" style="margin-top:10px;font-size:12.5px"></div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <button class="btn saffron" id="bulkStartBtn" onclick="startBulkBatch()">🚀 बैच शुरू करें (Start Batch)</button>
+            <span id="bulkStatusNote" style="font-size:12.5px;color:var(--muted)"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">🧾 मेरी बैचें (Batches)</h3>
+            <button class="btn ghost" style="padding:4px 10px;font-size:12px" onclick="loadBulkBatches()">↻ Refresh</button>
+          </div>
+          <div id="bulkBatchList" style="font-size:13px"><span class="muted">No batches yet — drop scans above to start one. / ऊपर से स्कैन छोड़ें।</span></div>
+        </div>
+
+        <div class="card hidden" id="bulkDetailCard">
+          <div class="card-header">
+            <h3 class="card-title" id="bulkDetailTitle">BATCH</h3>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn ok" id="bulkImportCleanBtn" style="padding:5px 12px;font-size:12px" onclick="importBulkClean()">✓ Import all clean</button>
+              <button class="btn ghost" style="padding:5px 12px;font-size:12px" onclick="bulkReportCsv()">⬇ CSV report</button>
+            </div>
+          </div>
+          <div id="bulkDetailMeta" style="font-size:12.5px;color:var(--muted);margin-bottom:8px"></div>
+          <div id="bulkItemTable" style="font-size:12.5px;overflow-x:auto"></div>
+        </div>
+      </div>
+
       <div id="tab-search" class="hidden">
         <div class="card" style="border-top:3px solid var(--gov-navy);text-align:center;padding:26px 20px">
           <h3 class="card-title" style="font-size:20px">Search Land Records (भू-अभिलेख खोजें)</h3>
@@ -2595,7 +2668,7 @@ function showApp(){
   if(me.role === 'viewer'){
     // VIEWER workspace (reference-portal "Simple Portal"): search-only.
     // The viewer sees the approved-records catalog; everything else is hidden.
-    ['upload','documents','map','queue','mutation','compare','consistency','learn','approvals','audit','users'].forEach(t=>{
+    ['upload','bulk','documents','map','queue','mutation','compare','consistency','learn','approvals','audit','users'].forEach(t=>{
       const b = document.querySelector('.tab[data-tab="'+t+'"]');
       if(b) b.classList.add('hidden');
     });
@@ -2671,6 +2744,7 @@ $('#loginPassword').addEventListener('keydown',e=>{ if(e.key==='Enter')$('#login
 // ==========================================================================
 const TAB_TITLES = {
   upload: 'दस्तावेज़ अपलोड (Upload)',
+  bulk: 'बल्क OCR — एक साथ कई स्कैन (Bulk OCR)',
   search: 'खोज (Search)',
   dashboard: 'सांख्यिकी डैशबोर्ड (Dashboard)',
   documents: 'भू-अभिलेख सूची (Records)',
@@ -2688,7 +2762,7 @@ const TAB_TITLES = {
 
 function switchTab(name, pushHistory=true){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab===name));
-  ['upload','search','dashboard','documents','map','queue','mutation','compare','consistency','learn','approvals','audit','users','account'].forEach(n=>{
+  ['upload','bulk','search','dashboard','documents','map','queue','mutation','compare','consistency','learn','approvals','audit','users','account'].forEach(n=>{
     const p = $('#tab-'+n); if(p) p.classList.toggle('hidden', n!==name);
   });
 
@@ -6137,6 +6211,184 @@ async function loadCourtCases(docId){
   }
   box.innerHTML = html;
 }
+// ==========================================================================
+// 📚 BULK OCR (v3.12) — multi-scan batch queue with live progress review
+// ==========================================================================
+let _bulkFiles = [];
+let _bulkOpenId = null;
+let _bulkTimer = null;
+
+function bulkFilesPicked(inp){
+  _bulkFiles = Array.from(inp.files || []).slice(0, 25);
+  if((inp.files || []).length > 25) alert('एक बैच में अधिकतम 25 फाइलें — केवल पहले 25 चुने गए हैं (max 25 per batch; first 25 kept).');
+  const box = document.getElementById('bulkFileList');
+  if(!box) return;
+  box.innerHTML = _bulkFiles.length
+    ? '<b>' + _bulkFiles.length + ' file(s) selected:</b> ' + _bulkFiles.map(f => escapeHtml(f.name)).join(' · ')
+    : '';
+}
+
+function _bulkEnsureTimer(){
+  if(_bulkTimer) return;
+  _bulkTimer = setInterval(() => {
+    loadBulkBatches(true);
+    if(_bulkOpenId) loadBulkDetail(true);
+  }, 4000);
+}
+
+async function startBulkBatch(){
+  if(!_bulkFiles.length){ alert('पहले स्कैन फाइलें चुनें (pick scan files first).'); return; }
+  const btn = document.getElementById('bulkStartBtn'); if(btn) btn.disabled = true;
+  const note = document.getElementById('bulkStatusNote');
+  if(note) note.textContent = '⏳ अपलोड हो रहा है… (uploading ' + _bulkFiles.length + ' files)';
+  try{
+    const fd = new FormData();
+    _bulkFiles.forEach(f => fd.append('files', f, f.name));
+    fd.append('lang', (document.getElementById('bulkLang') || {}).value || '');
+    fd.append('doc_type', (document.getElementById('bulkDocType') || {}).value || 'land_record');
+    const r = await fetch(authUrl('/api/bulk/batches'), {method:'POST',
+      headers: token ? {'Authorization':'Bearer '+token} : {}, body: fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || ('HTTP ' + r.status));
+    if(note) note.textContent = '✅ बैच बन गया — OCR कतार में चल रहा है (batch queued; files process in the background)';
+    document.getElementById('bulkFileInput').value = '';
+    _bulkFiles = []; bulkFilesPicked(document.getElementById('bulkFileInput'));
+    _bulkOpenId = d.id;
+    _bulkEnsureTimer();
+    await loadBulkBatches(true);
+    await loadBulkDetail();
+    document.getElementById('bulkDetailCard').classList.remove('hidden');
+    document.getElementById('bulkDetailCard').scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(e){
+    if(note) note.textContent = '⚠️ ' + e.message;
+    alert(e.message);
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+function _bulkStatusChip(st){
+  const m = {queued:['#475569','#e2e8f0','⏳ queued'], processing:['#1d4ed8','#dbeafe','⚙️ processing…'],
+             done:['#166534','#dcfce7','✅ done'], failed:['#b91c1c','#fee2e2','⛔ failed']};
+  const c = m[st] || m.queued;
+  return '<span style="display:inline-block;background:'+c[1]+';color:'+c[0]+';border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:800">'+c[2]+'</span>';
+}
+
+async function loadBulkBatches(quiet){
+  const box = document.getElementById('bulkBatchList'); if(!box) return;
+  let d;
+  try{ d = await api('/api/bulk/batches'); }
+  catch(e){ if(!quiet) box.innerHTML = '<span style="color:#b91c1c">'+escapeHtml(e.message)+'</span>'; return; }
+  const batches = d.batches || [];
+  if(!batches.length){ box.innerHTML = '<span class="muted">No batches yet — drop scans above to start one. / ऊपर से स्कैन छोड़ें।</span>'; return; }
+  box.innerHTML = batches.map(b => {
+    const total = b.total || 0, fin = (b.done || 0) + (b.failed || 0);
+    const pct = total ? Math.round(100 * fin / total) : 0;
+    const active = b.status !== 'done';
+    return '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;margin-bottom:8px;cursor:pointer;background:' + (b.id === _bulkOpenId ? '#eff6ff' : '#fff') + '" onclick="openBulkBatch(\'' + b.id + '\')">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">' +
+        '<b style="color:#0b2f55">📦 BATCH-' + b.id.slice(0,6).toUpperCase() + '</b>' +
+        '<span style="font-size:11.5px;color:var(--muted)">' + total + ' files · ✅ ' + (b.done||0) + ' · ⛔ ' + (b.failed||0) + ' · 📥 imported ' + (b.imported||0) + (active ? ' · <b style="color:#1d4ed8">running…</b>' : ' · <b style="color:#166534">finished</b>') + '</span></div>' +
+      '<div style="height:6px;background:#e2e8f0;border-radius:999px;margin-top:6px;overflow:hidden"><div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#1d4ed8,#16a34a);transition:width .4s"></div></div>' +
+    '</div>';
+  }).join('');
+}
+
+function openBulkBatch(bid){
+  _bulkOpenId = bid;
+  document.getElementById('bulkDetailCard').classList.remove('hidden');
+  _bulkEnsureTimer();
+  loadBulkDetail();
+  loadBulkBatches(true);
+}
+
+function _fv(fields, k){ const v = (fields || {})[k]; return (v && typeof v === 'object') ? (v.value || '') : (v || ''); }
+
+async function loadBulkDetail(quiet){
+  if(!_bulkOpenId) return;
+  let d;
+  try{ d = await api('/api/bulk/batches/' + _bulkOpenId); }
+  catch(e){ if(!quiet) alert(e.message); return; }
+  document.getElementById('bulkDetailTitle').textContent = '📦 ' + (d.batch_no || 'BATCH');
+  const fin = (d.done || 0) + (d.failed || 0), total = d.total || 0;
+  document.getElementById('bulkDetailMeta').innerHTML =
+    fin + '/' + total + ' processed' + (d.lang ? ' · lang: <b>' + escapeHtml(d.lang) + '</b>' : ' · auto-detect') +
+    ' · ' + (d.clean || 0) + ' clean row(s) ready to import' +
+    (d.status === 'done' ? ' · <b style="color:#166534">बैच पूर्ण (finished)</b>' : ' · <b style="color:#1d4ed8">running…</b>');
+  const btn = document.getElementById('bulkImportCleanBtn');
+  btn.textContent = '✓ Import all clean (' + (d.clean || 0) + ') / सभी साफ़ रिकॉर्ड';
+  btn.disabled = !(d.clean > 0);
+  btn.style.opacity = btn.disabled ? '.5' : '1';
+  const items = d.items || [];
+  document.getElementById('bulkItemTable').innerHTML =
+    '<table style="width:100%;border-collapse:collapse;min-width:760px">' +
+    '<tr style="background:#f1f5f9;text-align:left"><th style="padding:6px 8px">File</th><th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Survey / Village / Owner</th><th style="padding:6px 8px">Conf.</th><th style="padding:6px 8px">Verdict / warnings</th><th style="padding:6px 8px">Actions</th></tr>' +
+    items.map(it => {
+      const f = it.fields || {}, v = it.validation || {};
+      const verdict = v.verdict || (it.status === 'done' ? 'review' : '');
+      const vChip = verdict === 'valid'
+        ? '<span style="color:#166534;font-weight:800">valid</span>'
+        : (verdict ? '<span style="color:#92400e;font-weight:800">' + escapeHtml(verdict) + '</span>' : '—');
+      const warns = (v.issues || []).length;
+      const dup = v.duplicate_of ? '<div style="color:#b45309;font-size:10.5px">⚠️ duplicate of ' + escapeHtml(v.duplicate_of) + '</div>' : '';
+      const scr = it.screening && it.screening.count
+        ? '<div style="color:#7c3aed;font-size:10.5px;font-weight:700">🛡️ SA: ' + it.screening.count + ' court case(s) — ' + escapeHtml(it.screening.highest || '') + '</div>' : '';
+      const err = it.error ? '<div style="color:#b91c1c;font-size:10.5px">' + escapeHtml(it.error).slice(0, 120) + '</div>' : '';
+      let actions = '';
+      if(it.imported_doc_id){
+        actions = '<span style="color:#166534;font-weight:800">📥 ' + escapeHtml(it.imported_doc_id) + '</span>';
+      } else if(it.status === 'done'){
+        actions = '<button class="btn ghost" style="padding:3px 9px;font-size:11px" onclick="importBulkItem(\'' + it.id + '\',' + (verdict === 'valid' ? 'false' : 'true') + ')">📥 Import' + (verdict === 'valid' ? '' : ' ⚠️') + '</button>';
+      } else if(it.status === 'failed'){
+        actions = '<button class="btn ghost" style="padding:3px 9px;font-size:11px;color:#1d4ed8" onclick="retryBulkItem(\'' + it.id + '\')">↻ Retry</button>';
+      } else {
+        actions = '<span style="color:var(--muted);font-size:11px">…</span>';
+      }
+      return '<tr style="border-bottom:1px solid #e2e8f0">' +
+        '<td style="padding:6px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(it.filename) + '">' + escapeHtml(it.filename) + '</td>' +
+        '<td style="padding:6px 8px">' + _bulkStatusChip(it.status) + '</td>' +
+        '<td style="padding:6px 8px;font-size:11.5px">' + escapeHtml(_fv(f,'survey_number') || '—') + ' / ' + escapeHtml(_fv(f,'village') || '—') + '<br><span style="color:#475569">' + escapeHtml(_fv(f,'owner_name') || '—') + '</span></td>' +
+        '<td style="padding:6px 8px">' + (it.mean_conf ? Math.round(it.mean_conf) + '%' : '—') + '</td>' +
+        '<td style="padding:6px 8px">' + vChip + (warns ? ' <span style="color:#92400e;font-size:10.5px">(' + warns + ' issue' + (warns>1?'s':'') + ')</span>' : '') + dup + scr + err + '</td>' +
+        '<td style="padding:6px 8px;white-space:nowrap">' + actions + '</td></tr>';
+    }).join('') + '</table>';
+}
+
+async function importBulkClean(){
+  if(!_bulkOpenId) return;
+  if(!confirm('Import ALL clean rows of this batch as land records?\nसभी साफ़ रिकॉर्ड सत्यापन कतार (pending review) में जाएँगे — Verification Officer अंतिम मंज़ूरी देगा।')) return;
+  try{
+    const d = await api('/api/bulk/batches/' + _bulkOpenId + '/import', {method:'POST', body:'{}'});
+    alert('✅ ' + d.imported + ' record(s) imported into the verification queue' + (d.skipped_not_clean ? ' · ' + d.skipped_not_clean + ' non-clean skipped (import those row-by-row if wanted)' : ''));
+    loadBulkDetail(true); loadBulkBatches(true);
+  }catch(e){ alert(e.message); }
+}
+
+async function importBulkItem(iid, force){
+  if(force && !confirm('This row is NOT clean (needs a look). Import it anyway into the verification queue?')) return;
+  try{
+    const d = await api('/api/bulk/items/' + iid + '/import', {method:'POST', body: JSON.stringify({force: !!force})});
+    alert('✅ Imported as record ' + d.doc_id + ' (pending review — Verification Officer approves it).');
+    loadBulkDetail(true); loadBulkBatches(true);
+  }catch(e){ alert(e.message); }
+}
+
+async function retryBulkItem(iid){
+  const lang = (document.getElementById('bulkLang') || {}).value || '';
+  try{
+    await api('/api/bulk/items/' + iid + '/retry', {method:'POST', body: JSON.stringify({lang: lang})});
+    loadBulkDetail(true);
+  }catch(e){ alert(e.message); }
+}
+
+function bulkReportCsv(){
+  if(!_bulkOpenId) return;
+  window.open(authUrl('/api/bulk/batches/' + _bulkOpenId + '/report.csv'), '_blank');
+}
+
+// first paint of the batch list when the tab is opened
+(function(){ const _origSwitch = switchTab; switchTab = function(name, push){ const r = _origSwitch(name, push); if(name === 'bulk'){ loadBulkBatches(true); if(_bulkOpenId) loadBulkDetail(true); } return r; }; })();
+
 // ==========================================================================
 // ⚖️ SA CourtLink (v3.11) — demo court database + SA case-history detection.
 // ADMIN ONLY on screen; the matching APIs are admin-only server-side too.

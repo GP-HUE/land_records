@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 # (OpenCV / Tesseract / PyMuPDF) runs in the disposable worker process via
 # ocrpool, so a bad file can never crash the web-server process itself.
 from . import ai_rescue, auth, cert_pdf, common, extractor, ocrpool, paths, store, validator
-from . import ai_support, ai_assistant, sa_admin, courtlink
+from . import ai_support, ai_assistant, sa_admin, courtlink, bulkocr
 
 PKG = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(paths.resource_dir(), "landrec", "static")
@@ -31,13 +31,14 @@ SESSION_COOKIE = "lr_session"
 app = FastAPI(title="Intelligent Land Record Digitization & Validation System")
 store.init_db()
 courtlink.init_db()   # demo court database (SA CourtLink) — table + seed
+bulkocr.init_db()     # bulk OCR queue tables + resume interrupted batches
 log = logging.getLogger("landrec")
 _START_TIME = time.time()
 
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.11.0"
+APP_VERSION = "3.12.0"
 
 
 def _warmup_ocr_worker():
@@ -384,9 +385,11 @@ def _check_transfer_hint(fields: dict, validation: dict):
         validation["verdict"] = "review"
 
 
-def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
-                  stored_path: str = None, mime: str = None, size: int = None,
-                  langs: list = None, doc_type: str = "land_record") -> dict:
+def _analyze_document(data: bytes, filename: str, langs: list = None) -> dict:
+    """The OCR pipeline WITHOUT saving a document: OCR -> extract -> AI
+    rescue/learning -> validation -> duplicate & transfer checks.  Shared by
+    the single-upload path (_run_pipeline) and the Bulk OCR background worker
+    (bulkocr), so both behave identically."""
     ocr_result = ocrpool.run_ocr(data, filename, langs=langs)
     fields = extractor.extract_fields(ocr_result)
     fields = store.apply_learned(fields)
@@ -419,6 +422,22 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
         validation["duplicate_of"] = dup["id"]
     if not dup:
         _check_transfer_hint(fields, validation)
+    return {"ocr": ocr_result, "fields": fields, "validation": validation,
+            "quality": quality, "rescue": rescue_info, "dedup_key": dedup_key}
+
+
+bulkocr.set_analyzer(_analyze_document)   # bulk worker reuses the same pipeline
+
+
+def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
+                  stored_path: str = None, mime: str = None, size: int = None,
+                  langs: list = None, doc_type: str = "land_record") -> dict:
+    a = _analyze_document(data, filename, langs=langs)
+    ocr_result = a["ocr"]
+    fields = a["fields"]
+    validation = a["validation"]
+    quality = a["quality"]
+    rescue_info = a["rescue"]
 
     # ---- AI ROUTING: a document the AI still cannot read is NEVER
     # auto-approved — it is forced into the verification queue and sent
@@ -429,7 +448,7 @@ def _run_pipeline(data: bytes, filename: str, uploaded_by: dict,
         forced_status = "pending_review"
         routed_officer = store.pick_least_loaded_officer()
     doc_id = store.save_upload(filename, mime, size, stored_path, uploaded_by["id"],
-                               ocr_result, fields, validation, dedup_key,
+                               ocr_result, fields, validation, a["dedup_key"],
                                doc_type=doc_type, status=forced_status)
     store.audit(doc_id, uploaded_by["id"], uploaded_by["email"],
                 "document_created", filename)
@@ -550,6 +569,102 @@ def process_sample(name: str, lang: str = Query(""), doc_type: str = Query("land
     result = _run_pipeline(data, name, user, langs=_parse_lang(lang), doc_type=doc_type)
     _maybe_sa_court_screen(result, user)   # SA CourtLink: instant for admin
     return result
+
+
+# --------------------------------------------------------------------------
+# Bulk OCR (v3.12) — multi-scan intake queue with background processing.
+# Operators/verifiers/admins can run batches; each sees their own (admins
+# see all).  Imported rows always land in pending_review: bulk intake never
+# bypasses the Verification Officer.
+# --------------------------------------------------------------------------
+@app.post("/api/bulk/batches")
+async def bulk_create(request: Request, files: list[UploadFile] = File(...),
+                      lang: str = Form(""), doc_type: str = Form("land_record"),
+                      user: dict = Depends(require_role("operator"))):
+    ip = request.client.host if request.client else "?"
+    _rate_limit("bulk:" + ip, 8, 60)          # intake is light; OCR is queued
+    if not files:
+        raise HTTPException(400, "Attach at least one scan file")
+    if len(files) > bulkocr.MAX_BATCH_FILES:
+        raise HTTPException(400, f"A batch takes at most {bulkocr.MAX_BATCH_FILES} files "
+                                 f"({len(files)} given) — split it into two batches")
+    prepared = []
+    for f in files:
+        ext = os.path.splitext(f.filename or "")[1].lower()
+        if ext not in store.ALLOWED_EXTENSIONS:
+            raise HTTPException(400, f"Unsupported file type '{ext}' in {f.filename}. "
+                                     f"Allowed: {', '.join(sorted(store.ALLOWED_EXTENSIONS))}")
+        data = await f.read()
+        if not data:
+            raise HTTPException(400, f"Empty file: {f.filename}")
+        if len(data) > store.MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"{f.filename} exceeds the "
+                                     f"{store.MAX_UPLOAD_BYTES // (1024*1024)} MB limit")
+        prepared.append((f.filename or "scan", data, ext))
+    try:
+        return bulkocr.create_batch(prepared, lang, doc_type, user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/bulk/batches")
+def bulk_list(user: dict = Depends(require_role("operator"))):
+    return {"batches": bulkocr.list_batches(user)}
+
+
+@app.get("/api/bulk/batches/{bid}")
+def bulk_detail(bid: str, user: dict = Depends(require_role("operator"))):
+    try:
+        return bulkocr.get_batch(bid, user)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@app.get("/api/bulk/batches/{bid}/report.csv")
+def bulk_report(bid: str, user: dict = Depends(require_role("operator"))):
+    try:
+        csv_text = bulkocr.report_csv(bid, user)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    return Response(content=csv_text, media_type="text/csv",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=bulk_report_{bid[:6]}.csv"})
+
+
+@app.post("/api/bulk/batches/{bid}/import")
+def bulk_import_clean(bid: str, user: dict = Depends(require_role("operator"))):
+    try:
+        return bulkocr.import_clean(bid, user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@app.post("/api/bulk/items/{iid}/import")
+def bulk_import_item(iid: str, payload: dict = None,
+                     user: dict = Depends(require_role("operator"))):
+    try:
+        return bulkocr.import_item(iid, user, force=bool((payload or {}).get("force")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+
+
+@app.post("/api/bulk/items/{iid}/retry")
+def bulk_retry_item(iid: str, payload: dict = None,
+                    user: dict = Depends(require_role("operator"))):
+    try:
+        return bulkocr.retry_item(iid, (payload or {}).get("lang"), user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
 
 
 @app.get("/api/samples")

@@ -367,6 +367,18 @@ async function main(){
   const clSrc = fs.readFileSync(LR_ROOT + '/landrec/courtlink.py', 'utf8');
   check('backend: courtlink module w/ seeded STAY case + scan + attach', clSrc.includes('WPL/2023/0234') && clSrc.includes('def screen_document') && clSrc.includes('def attach_case'));
 
+  // ================= v3.12.0 static UI assertions — Bulk OCR =================
+  check('bulk OCR tab button + section present', html.includes('data-tab="bulk"') && html.includes('id="tab-bulk"') && html.includes('id="bulkStartBtn"'));
+  check('switchTab routes the bulk tab', js.includes("'upload','bulk',"));
+  for (const fn of ['bulkFilesPicked', 'startBulkBatch', 'loadBulkBatches', 'openBulkBatch', 'loadBulkDetail', 'importBulkClean', 'importBulkItem', 'retryBulkItem', 'bulkReportCsv'])
+    check('Bulk fn ' + fn + ' defined', vm.runInContext('typeof ' + fn, sandbox) === 'function');
+  check('bulk UI uses the queue + import endpoints', js.includes("'/api/bulk/batches'") && js.includes("'/import'") && js.includes("'/retry'") && js.includes("report.csv"));
+  check('import-all-clean states records go to pending review', js.includes('pending review') || js.includes('pending_review'));
+  const bkSrc = fs.readFileSync(LR_ROOT + '/landrec/bulkocr.py', 'utf8');
+  check('backend: bulk worker resumes interrupted items', bkSrc.includes("WHERE status='processing'") && bkSrc.includes("status='queued'"));
+  check('backend: bulk imports forced to pending_review', bkSrc.includes('status="pending_review"') && bkSrc.includes('def import_clean'));
+  check('backend: bulk routes operator-gated (viewer locked out)', (fs.readFileSync(LR_ROOT + '/landrec/main.py', 'utf8').match(/\/api\/bulk\/[a-z.{}/-]*"[\s\S]{0,320}?require_role\("operator"\)/g) || []).length >= 7);
+
   console.log('\\nRESULT: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }

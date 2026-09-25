@@ -3,6 +3,52 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.12.0 (25-Sep-2026) — BULK OCR: MANY SCANS, ONE QUEUE
+The Upload tab digitizes one scan at a time; a digitization drive has
+hundreds. The new 📚 Bulk OCR tab processes a whole pile at once.
+### 1) Multi-file batch upload (up to 25 scans / batch)
+  * Drag & drop up to 25 PDF/JPG/PNG/TIFF files with ONE language +
+    ONE document type hint (hint: same-type + same-language batches are
+    ~2× faster and more accurate — the tab says so, bilingually)
+  * Files enter a SQLite-backed server queue processed by a background
+    worker through the SAME OCR pipeline as a single upload (OCR →
+    extract → AI rescue → validation → duplicate check) — bulk never
+    takes a shortcut
+  * Live progress: per-file status (queued → processing → done/failed),
+    progress bars per batch, auto-refresh; operator can keep working in
+    other tabs; a refresh or app restart never loses a batch (items
+    stuck mid-flight re-queue on boot)
+### 2) Review table — every file pre-screened before it enters the register
+  * Extracted survey/village/owner, OCR confidence, validation verdict
+    and warnings per row, colour-coded
+  * Duplicate detection in-table (matches an existing record → flagged,
+    never silently double-imported)
+  * ADMIN batches also get an instant 🛡️ SA CourtLink screen per row
+    (stay orders / prior cases surface before import) — operator and
+    verifier batches are never screened (admin-only feature, enforced)
+  * Failed rows (e.g. a blank scan) get an OCR diagnosis and one-click
+    Retry, optionally with a different language pack
+### 3) Import — bulk never bypasses verification
+  * ✓ Import all clean (N): one click imports every valid, non-duplicate
+    row; 🟡 rows import individually with an explicit ⚠️ confirm
+  * EVERY imported record lands in the verification queue as
+    pending_review for the Verification Officer — the bulk path removes
+    the typing, not the human check. Each import is audit-stamped
+    'bulk_import' with its BATCH id, and a CSV batch report downloads
+    for the office file
+### Roles
+Data operators, verification officers and admins can run batches (each
+sees only their own; admin sees all). Viewers are locked out.
+### Tests
+New suite test_bulk_ocr.py — 47 checks: RBAC + limits (8), an 8-file
+English batch end-to-end (blank-scan failure, fields/confidence,
+duplicate flag, admin SA screen, clean-scan verdict), import semantics
+(pending_review, audit stamp, force-import, re-import refused) (9),
+retry + per-user visibility (4), an auto-detect 4-file Indic batch
+(Hindi/Telugu processed; operator items carry NO screening) (5),
+verifier batch + CSV report, static wiring. fullpage sim 71/71
+(+9 bulk checks). All previous batteries re-run green.
+
 ## WHAT'S NEW IN v3.11.0 (25-Sep-2026) — SA COURTLINK: DEMO COURT DATABASE + INSTANT CASE-HISTORY DETECTION
 Real courts keep a case record for every disputed land parcel; until now the
 portal only knew cases typed into it manually. SA CourtLink simulates that
