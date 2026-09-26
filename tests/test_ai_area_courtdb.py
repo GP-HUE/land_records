@@ -103,8 +103,12 @@ check("A2 SA AI has the court-database Q&A machinery",
                                 "_COURT_DB_HINT_RE", "_case_card", "COURT_DB_QUERY")))
 check("A3 normal AI imports the extractor (shoelace ring area)",
       "from . import ai_support, common, extractor, risk, store" in ai_src)
-check("A4 version bumped + changelog", 'APP_VERSION = "3.13.2"' in mn_src
-      and "v3.13.2" in qs_src)
+import re as _re4
+_m = _re4.search(r'APP_VERSION = "(\d+)\.(\d+)\.(\d+)"', mn_src)
+check("A4 version bumped + changelog",
+      _m is not None and tuple(int(x) for x in _m.groups()) >= (3, 14, 0)
+      and "v3.14.0" in qs_src,
+      _m.group(0) if _m else "no APP_VERSION")
 
 print("=" * 70)
 print("B. Normal AI — the 'what is computed area?' explainer")
@@ -114,7 +118,7 @@ check("B1 explainer answers recorded 📄 vs computed 📏",
       "RECORDED VS COMPUTED AREA" in r["answer"].upper()
       and "shoelace" in r["answer"].lower(), r["answer"][:160])
 check("B2 explainer mentions the badge thresholds + guards",
-      "25%" in r["answer"] and "50%" in r["answer"], r["answer"][:200])
+      "5%" in r["answer"] and "494" in r["answer"], r["answer"][:200])
 
 print("=" * 70)
 print("C. Normal AI — area cross-check on a NEW-kind record (boundary: document)")
@@ -172,7 +176,7 @@ else:
           "MISMATCH" in r["answer"].upper() and hit and "⚠" in r["answer"],
           r["answer"][:320])
     r = ask(ADMIN, "computed area of " + DOC)
-    check("C10 per-record verdict flips to ⚠ MISMATCH (>25% off)",
+    check("C10 per-record verdict flips to ⚠ MISMATCH (>5% off)",
           "MISMATCH" in r["answer"].upper() and "⚠" in r["answer"], r["answer"][:260])
     # restore the truthful boundary for later suites
     req("POST", "/api/map/records/%s/boundary" % DOC, ADMIN, {"coordinates": [

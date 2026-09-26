@@ -1208,7 +1208,7 @@
             <label class="field-label" for="docKindSelect">🧭 दस्तावेज़ किस्म / Document Kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप में प्लॉट के 4 कोनों के GPS निर्देशांक छपे होते हैं — नक्शे पर सीमा + पिन अपने आप बनती है)</span></label>
             <select id="docKindSelect" style="max-width:360px">
               <option value="old">पुराना / Old — standard paper record (no printed coordinates)</option>
-              <option value="new">नया / New — 4 printed corner coordinates → auto map boundary + pin</option>
+              <option value="new">नया / New — 3-5 printed corner coordinates (any plot shape) → auto map boundary + pin</option>
             </select>
           </div>
           <div class="formfield" style="margin-bottom:14px">
@@ -1405,7 +1405,7 @@
               <label class="field-label" for="bulkKind">🧭 दस्तावेज़ किस्म / Document kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप = 4 निर्देशांक → map boundary)</span></label>
               <select id="bulkKind">
                 <option value="old">पुराना / Old — no printed coordinates</option>
-                <option value="new">नया / New — 4 corner coordinates → auto map boundary</option>
+                <option value="new">नया / New — 3-5 corner coordinates (any shape) → auto map boundary</option>
               </select>
             </div>
           </div>
@@ -1667,6 +1667,8 @@
               <option value="selected">📍 Show: Selected record</option>
               <option value="all">🌍 Show: All records</option>
             </select>
+            <button class="btn ghost" id="mapAreaConflictBtn" onclick="mapToggleAreaConflicts()"
+              title="Records where the boundary-computed area differs from the recorded area by more than 5% — with a coordinate editor">⚠ Area mismatch records</button>
             <label style="font-size:12.5px;display:flex;align-items:center;gap:6px;cursor:pointer" id="mapPinLabel">
               <input type="checkbox" id="mapPinMode" onchange="mapTogglePinMode()">
               📍 Set exact pin (click map)
@@ -1704,6 +1706,14 @@
                 </div>
                 <!-- Digitize panel: manual coordinate input for accuracy -->
                 <div id="mapDigitizePanel" class="hidden" style="position:absolute;left:10px;bottom:10px;z-index:1002;width:345px;max-width:calc(100% - 20px);background:#fff;border:2px solid #16a34a;border-radius:10px;box-shadow:0 8px 28px rgba(15,43,72,.25);font-size:12px;max-height:65%;overflow-y:auto;padding:10px 12px"></div>
+                <!-- Area-mismatch records list (computed vs recorded > 5%) -->
+                <div id="mapAreaConflictPanel" class="hidden" style="position:absolute;top:10px;left:10px;z-index:1003;width:345px;max-width:calc(100% - 20px);max-height:calc(100% - 20px);overflow-y:auto;background:#fff;border:2px solid #b91c1c;border-radius:10px;box-shadow:0 8px 28px rgba(15,43,72,.25);font-size:12px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;background:#b91c1c;color:#fff;padding:8px 12px;border-radius:8px 8px 0 0;position:sticky;top:0">
+                    <b style="font-size:12.5px">⚠ Area Mismatch Records / क्षेत्रफल असंगति</b>
+                    <button onclick="mapToggleAreaConflicts()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:14px;line-height:1">✕</button>
+                  </div>
+                  <div id="mapAreaConflictBody" style="padding:10px 12px"></div>
+                </div>
                 <!-- Plot boundary info card (coordinates / area / source) -->
                 <div id="mapBoundaryCard" class="hidden" style="position:absolute;top:10px;right:10px;z-index:1001;width:315px;max-width:calc(100% - 20px);max-height:calc(100% - 20px);overflow-y:auto;background:#fff;border:2px solid var(--gov-navy);border-radius:10px;box-shadow:0 8px 28px rgba(15,43,72,.22);font-size:12px">
                   <div style="display:flex;justify-content:space-between;align-items:center;background:var(--gov-navy);color:#fff;padding:8px 12px;border-radius:8px 8px 0 0;position:sticky;top:0">
@@ -2223,13 +2233,23 @@
   </div>
 
   <!-- ==================== AI ASSISTANT (offline) ==================== -->
+  <!-- Coordinate editor modal (fix a mismatched boundary) -->
+  <div id="mapCoordEditModal" class="hidden" style="position:fixed;inset:0;z-index:10021;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+    <div style="background:#fff;border-radius:12px;max-width:430px;width:100%;max-height:86vh;overflow-y:auto;box-shadow:0 22px 60px rgba(0,0,0,.35)">
+      <div style="display:flex;justify-content:space-between;align-items:center;background:var(--gov-navy);color:#fff;padding:10px 14px;border-radius:12px 12px 0 0">
+        <b style="font-size:13px">✏️ Edit boundary coordinates / सीमा निर्देशांक सुधारें</b>
+        <button onclick="mapCloseCoordEditor()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:15px">✕</button>
+      </div>
+      <div id="mapCoordEditBody" style="padding:12px 14px"></div>
+    </div>
+  </div>
   <button id="aiFab" onclick="toggleAiPanel()" title="AI Assistant (offline) — सहायक"
     style="position:fixed;left:18px;bottom:18px;z-index:9997;width:56px;height:56px;border-radius:50%;
            background:linear-gradient(135deg,#0f2b48,#1d4ed8);color:#fff;border:2px solid #fff;
            font-size:26px;cursor:pointer;box-shadow:0 6px 18px rgba(15,43,72,.45);
            display:flex;align-items:center;justify-content:center">🤖</button>
   <div id="aiPanel" class="hidden"
-    style="position:fixed;left:18px;bottom:84px;z-index:9997;width:420px;max-width:calc(100vw - 36px);
+    style="position:fixed;left:18px;bottom:84px;z-index:10005;width:420px;max-width:calc(100vw - 36px);
            max-height:72vh;background:#fff;border:2px solid var(--gov-navy);border-radius:14px;
            box-shadow:0 18px 50px rgba(15,43,72,.35);display:flex;flex-direction:column;overflow:hidden">
     <div id="aiPanelHeader" style="background:var(--gov-navy);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
@@ -2984,7 +3004,8 @@ const LABELS={
   coordinate_1:'Coordinate 1 — corner lat/lon (निर्देशांक 1)',
   coordinate_2:'Coordinate 2 — corner lat/lon (निर्देशांक 2)',
   coordinate_3:'Coordinate 3 — corner lat/lon (निर्देशांक 3)',
-  coordinate_4:'Coordinate 4 — corner lat/lon (निर्देशांक 4)'
+  coordinate_4:'Coordinate 4 — corner lat/lon (निर्देशांक 4)',
+  coordinate_5:'Coordinate 5 — corner lat/lon (निर्देशांक 5)'
 };
 // field label in the current language
 function fl(fid){ return pick(LABELS[fid] || fid); }
@@ -3040,14 +3061,15 @@ function showResult(doc){
     const co = doc.coordinates;
     let coTxt;
     if(co.boundary_set){
-      coTxt = t('नया प्रारूप: 4/4 कोने के निर्देशांक पढ़े — मानचित्र सीमा + सटीक पिन अपने आप सेट', 'New format: 4/4 corner coordinates read — map boundary + exact pin set automatically') +
+      const _nc = (co.corners != null ? co.corners : (co.found||'?'));
+      coTxt = t('नया प्रारूप: ' + _nc + '/' + _nc + ' कोने के निर्देशांक पढ़े — मानचित्र सीमा + सटीक पिन अपने आप सेट', 'New format: ' + _nc + '/' + _nc + ' corner coordinates read — map boundary + exact pin set automatically') +
         (co.pin ? ' <span style="font-family:Consolas,monospace">📍 ' + co.pin[0].toFixed(5) + ', ' + co.pin[1].toFixed(5) + '</span>' : '') +
         (co.area_acres ? ' · 📏 ' + co.area_acres + ' ac computed' : '');
     } else if(co.reason === 'implausible_area'){
       coTxt = t('⚠ निर्देशांकों से क्षेत्रफल अविश्वसनीय (' + (co.area_acres||'?') + ' एकड़) — OCR अंक त्रुटि संभावित; सीमा सेट नहीं हुई, सत्यापन में सुधारें',
                 '⚠ Coordinates span an implausible area (' + (co.area_acres||'?') + ' ac) — likely a misread digit; boundary NOT set, verify the corners');
     } else {
-      coTxt = t('नया प्रारूप: ' + (co.found||0) + '/4 निर्देशांक पढ़े — सीमा के लिए चारों चाहिए; सत्यापन में सुधारें', 'New format: ' + (co.found||0) + '/4 coordinates read — all four needed for the boundary; correct them in verification');
+      coTxt = t('नया प्रारूप: ' + (co.found||0) + '/' + (co.corners_found != null ? co.corners_found : '?') + ' निर्देशांक पढ़े — सीमा के लिए कम से कम 3 और हर कोना पठनीय चाहिए; सत्यापन में सुधारें', 'New format: ' + (co.found||0) + '/' + (co.corners_found != null ? co.corners_found : '?') + ' coordinates read — at least 3 and every printed corner is needed for the boundary; correct them in verification');
     }
     $('#verdictBox').innerHTML += '<div style="margin-top:8px;font-size:12.5px;font-weight:600;line-height:1.5;color:' +
       (co.boundary_set ? '#166534' : '#92400e') + '">🧭 ' + coTxt + '</div>';
@@ -3129,7 +3151,7 @@ function showResult(doc){
   const step3Keys = ['village', 'tehsil', 'district', 'state', 'land_class', 'ownership_type', 'mutation_no', 'registration_no', 'khatauni_year'];
   step3Keys.forEach(fid => buildInputField(step3Box, fid, f[fid]));
   // NEW document kind: the four printed corner coordinates, editable like any field
-  ['coordinate_1','coordinate_2','coordinate_3','coordinate_4'].forEach(fid=>{ if(f[fid]) buildInputField(step3Box, fid, f[fid]); });
+  ['coordinate_1','coordinate_2','coordinate_3','coordinate_4','coordinate_5'].forEach(fid=>{ if(f[fid]) buildInputField(step3Box, fid, f[fid]); });
 
   // Step 4 OCR text
   $('#ocrPreview').textContent = doc.ocr.text_preview || t('कोई ओसीआर पाठ उपलब्ध नहीं है', 'No text detected');
@@ -4371,11 +4393,12 @@ function mapAreaStrToM2(str){
   return v * 4046.86;   // acre / एकड़ / unknown
 }
 function mapAreaMatchBadge(computedM2, recordedStr){
-  // cross-check: area from the boundary corners vs the recorded area field
+  // cross-check: area from the boundary corners vs the recorded area field.
+  // tolerance band: up to 5% (OCR/rounding noise); strictly above = mismatch
   const rec = mapAreaStrToM2(recordedStr);
   if(!rec || !computedM2) return '';
   const pct = Math.abs(computedM2 - rec) / rec * 100;
-  return pct <= 25
+  return pct <= 5
     ? '<br><span style="color:#166534;font-size:11px;font-weight:700">✓ Area cross-check: computed ≈ recorded (' +
       (pct < 0.5 ? '<0.5' : Math.round(pct)) + '% diff)</span>'
     : '<br><span style="color:#b91c1c;font-size:11px;font-weight:800">⚠ Area cross-check: computed area is ' +
@@ -4385,6 +4408,92 @@ function mapRingCentroid(ring){
   if(!ring || !ring.length) return null;
   const s = ring.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1]], [0, 0]);
   return [s[0] / ring.length, s[1] / ring.length];
+}
+// ---------------- area-mismatch list + coordinate editor ----------------
+function mapAreaMismatchList(){
+  const out = [];
+  (mapRecords || []).forEach(r=>{
+    if(!r.boundary || r.boundary.length < 3) return;
+    const comp = mapRingAreaM2(r.boundary);
+    const rec = mapAreaStrToM2(r.area);
+    if(!rec || !comp) return;
+    const pct = Math.abs(comp - rec) / rec * 100;
+    if(pct > 5) out.push({r:r, comp:comp, pct:pct});
+  });
+  out.sort((a,b)=>b.pct-a.pct);
+  return out;
+}
+function mapToggleAreaConflicts(){
+  const p = $('#mapAreaConflictPanel'); if(!p) return;
+  p.classList.toggle('hidden');
+  if(!p.classList.contains('hidden')) mapRenderAreaConflicts();
+}
+function mapRenderAreaConflicts(){
+  const body = $('#mapAreaConflictBody'); if(!body) return;
+  const list = mapAreaMismatchList();
+  let html = '<div style="color:var(--muted);font-size:11px;margin-bottom:8px">📏 Computed (map boundary) vs 📄 recorded — anything above the <b>5%</b> tolerance. <b>' + list.length + '</b> record(s) need attention.</div>';
+  if(!list.length){
+    html += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;color:#166534;font-weight:700">🟢 No area mismatches — every boundary-backed record agrees with its recorded area within 5%.</div>';
+  }
+  list.forEach(it=>{
+    const r = it.r;
+    html += '<div style="border:1px solid #fecaca;background:#fff7f7;border-radius:8px;padding:8px 10px;margin-top:8px">' +
+      '<div style="font-weight:800;color:#7f1d1d">' + escapeHtml(r.owner || '—') + ' <span style="color:#b91c1c">⚠ ' + Math.round(it.pct) + '% OFF</span></div>' +
+      '<div style="color:var(--muted);font-size:11px">' + escapeHtml(r.filename||'') + (r.survey ? ' · survey ' + escapeHtml(r.survey) : '') + (r.village ? ' · ' + escapeHtml(r.village) : '') + '</div>' +
+      '<div style="font-size:11.5px;margin-top:3px">📄 ' + escapeHtml(r.area || '—') + ' · 📏 ≈ ' + (it.comp/4046.86).toFixed(2) + ' acres (' + Math.round(it.comp).toLocaleString() + ' m²)</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">' +
+      '<button class="btn ghost" style="font-size:11px;padding:3px 9px" onclick="mapSelectBoundaryRecord(\'' + r.id + '\')">🗺 Show on map</button>' +
+      (mapCanPin()
+        ? '<button class="btn ghost" style="font-size:11px;padding:3px 9px" onclick="mapOpenCoordEditor(\'' + r.id + '\')">✏️ Edit coordinates</button>'
+        : '<span style="font-size:10.5px;color:var(--muted);align-self:center">edit: verifier/admin only</span>') +
+      '</div></div>';
+  });
+  body.innerHTML = html;
+}
+let mapCoordEditId = null;
+function mapOpenCoordEditor(id){
+  const r = mapRecords.find(x=>x.id===id); if(!r || !r.boundary) return;
+  mapCoordEditId = id;
+  const parts = [];
+  parts.push('<div style="font-weight:800;color:var(--gov-navy);font-size:13px">' + escapeHtml(r.owner||'—') + '</div>');
+  parts.push('<div style="color:var(--muted);font-size:11px;margin:2px 0 8px">' + escapeHtml(r.filename||'') + (r.area ? ' · 📄 recorded ' + escapeHtml(r.area) : '') + '</div>');
+  parts.push('<div style="font-size:11px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 8px">Fix the corner lat/lon values (decimal degrees, N/E positive). The boundary, computed area and the cross-check badge update immediately; the save is written to the audit trail.</div>');
+  r.boundary.forEach((p,i)=>{
+    parts.push('<div style="display:flex;gap:6px;align-items:center;margin-top:6px"><b style="font-size:11px;width:26px">V'+(i+1)+'</b>'
+      + '<input id="mce_lat_'+i+'" type="number" step="0.000001" value="'+p[0]+'" style="width:45%;padding:5px 6px;border:1px solid var(--gov-border);border-radius:6px;font-size:12px" placeholder="lat">'
+      + '<input id="mce_lon_'+i+'" type="number" step="0.000001" value="'+p[1]+'" style="width:45%;padding:5px 6px;border:1px solid var(--gov-border);border-radius:6px;font-size:12px" placeholder="lon"></div>');
+  });
+  parts.push('<div id="mce_status" style="font-size:11px;margin-top:8px;min-height:14px"></div>');
+  parts.push('<div style="display:flex;gap:8px;margin-top:8px"><button class="btn" style="background:var(--gov-green);font-size:12px" onclick="mapSaveCoordEditor()">💾 Save boundary</button><button class="btn ghost" style="font-size:12px" onclick="mapCloseCoordEditor()">Cancel</button></div>');
+  $('#mapCoordEditBody').innerHTML = parts.join('');
+  $('#mapCoordEditModal').classList.remove('hidden');
+}
+function mapCloseCoordEditor(){ const m = $('#mapCoordEditModal'); if(m) m.classList.add('hidden'); mapCoordEditId = null; }
+async function mapSaveCoordEditor(){
+  const r = mapRecords.find(x=>x.id===mapCoordEditId); if(!r) return;
+  const ring = [];
+  for(let i=0;i<r.boundary.length;i++){
+    const lat = parseFloat($('#mce_lat_'+i).value), lon = parseFloat($('#mce_lon_'+i).value);
+    if(isNaN(lat) || isNaN(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180){
+      $('#mce_status').innerHTML = '<span style="color:#b91c1c">V'+(i+1)+': invalid lat/lon — latitude −90..90, longitude −180..180.</span>'; return;
+    }
+    ring.push([lat, lon]);
+  }
+  const st = $('#mce_status'); st.innerHTML = '<span style="color:var(--muted)">saving…</span>';
+  try{
+    const d = await api('/api/map/records/' + r.id + '/boundary', { method:'POST', body: JSON.stringify({coordinates: ring}) });
+    if(d && d.ok){
+      r.boundary = d.boundary; r.boundary_source = 'digitized';
+      st.innerHTML = '<span style="color:#166534">✓ saved — boundary updated (audit trail written)</span>';
+      try{ mapDrawBoundaries(); mapOpenBoundaryCard(r.id); }catch(e){}
+      mapRenderAreaConflicts();
+      setTimeout(mapCloseCoordEditor, 900);
+    } else {
+      st.innerHTML = '<span style="color:#b91c1c">Save failed: ' + escapeHtml((d && d.detail) || 'unknown error') + '</span>';
+    }
+  }catch(e){
+    st.innerHTML = '<span style="color:#b91c1c">Save failed: ' + escapeHtml(e.message || String(e)) + '</span>';
+  }
 }
 function mapDrawBoundaries(){
   if(!mapLeaflet || !mapBoundaryLayer) return;
@@ -6403,7 +6512,9 @@ async function loadBulkDetail(quiet){
       const scr = it.screening && it.screening.count
         ? '<div style="color:#7c3aed;font-size:10.5px;font-weight:700">🛡️ SA: ' + it.screening.count + ' court case(s) — ' + escapeHtml(it.screening.highest || '') + '</div>' : '';
       const coo = (it.coords_found != null)
-        ? '<div style="color:#6b21a8;font-size:10.5px;font-weight:700">🧭 coordinates: ' + it.coords_found + '/4' + (it.coords_found === 4 ? ' → map boundary on import' : ' (boundary needs 4)') + '</div>' : '';
+        ? '<div style="color:#6b21a8;font-size:10.5px;font-weight:700">🧭 coordinates: ' + it.coords_found +
+          (it.coords_total != null ? '/' + it.coords_total : '') +
+          ((it.coords_found >= 3 && it.coords_found === it.coords_total) ? ' → map boundary on import' : ' (needs 3+, every corner readable)') + '</div>' : '';
       const err = it.error ? '<div style="color:#b91c1c;font-size:10.5px">' + escapeHtml(it.error).slice(0, 120) + '</div>' : '';
       let actions = '';
       if(it.imported_doc_id){
@@ -7067,6 +7178,15 @@ function toggleAiPanel(){
   const p = $('#aiPanel');
   if(!p) return;
   p.classList.toggle('hidden');
+  // the ⚖️ court-database FAB sits at the panel's bottom-left corner —
+  // park it (and its panel) while the assistant is open so nothing is blocked
+  const cdbFab = $('#courtDbFab'), cdbPanel = $('#courtDbPanel');
+  if(!p.classList.contains('hidden')){
+    if(cdbFab && cdbFab.style.display !== 'none'){ cdbFab.dataset.hiddenByAi = '1'; cdbFab.style.display = 'none'; }
+    if(cdbPanel && !cdbPanel.classList.contains('hidden')){ cdbPanel.dataset.hiddenByAi = '1'; cdbPanel.classList.add('hidden'); }
+  } else {
+    if(cdbFab && cdbFab.dataset.hiddenByAi){ delete cdbFab.dataset.hiddenByAi; cdbFab.style.display = 'flex'; }
+  }
   if(!p.classList.contains('hidden') && !p.dataset.init){
     p.dataset.init = '1';
     aiAdd('bot', "Namaste! 👋 I am the offline AI assistant. I can chat with you, explain every part " +

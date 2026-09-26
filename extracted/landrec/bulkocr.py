@@ -23,7 +23,7 @@ import threading
 import time
 import uuid
 
-from . import courtlink, extractor, store
+from . import common, courtlink, extractor, store
 
 log = logging.getLogger("landrec.bulk")
 
@@ -187,10 +187,15 @@ def get_batch(bid, user, with_items=True):
             it["screening"] = scr
             it.pop("ocr_text", None)      # heavy; not needed in the UI list
             if new_kind:
+                # a plot can be any shape: 3 corners (triangle), 4, or 5 —
+                # found = parseable coordinates, total = values read
+                it["coords_total"] = sum(
+                    1 for fid in common.COORD_FIELD_IDS
+                    if str((fields.get(fid) or {}).get("value") or "").strip())
                 it["coords_found"] = sum(
-                    1 for i in range(1, 5)
+                    1 for fid in common.COORD_FIELD_IDS
                     if extractor.parse_coordinate(
-                        (fields.get("coordinate_%d" % i) or {}).get("value") or ""))
+                        (fields.get(fid) or {}).get("value") or ""))
             items.append(it)
         batch["items"] = items
         batch["clean"] = sum(1 for it in items if _is_clean(it))
@@ -400,7 +405,7 @@ def report_csv(bid, user):
         return '"' + s.replace('"', '""') + '"'
     lines = ["batch,file,status,verdict,confidence,survey,village,owner,"
              "warnings,duplicate_of,sa_screening_matches,imported_doc_id,error,"
-             "coords_found"]
+             "coords_found,coords_total"]
     for it in data["items"]:
         f, v = it.get("fields") or {}, it.get("validation") or {}
         scr = it.get("screening") or {}
@@ -411,5 +416,6 @@ def report_csv(bid, user):
             _field_value(f, "owner_name"), len(v.get("issues") or []),
             v.get("duplicate_of") or "", scr.get("count") if scr else "",
             it.get("imported_doc_id") or "", (it.get("error") or "")[:120],
-            it.get("coords_found") if it.get("coords_found") is not None else ""]))
+            it.get("coords_found") if it.get("coords_found") is not None else "",
+            it.get("coords_total") if it.get("coords_total") is not None else ""]))
     return "\n".join(lines) + "\n"

@@ -203,6 +203,10 @@ COORD_FIELD_DEFS = [
         "coordinate 4", "coordinates 4", "coordinate-4", "coord 4", "coord-4",
         "corner 4", "corner-4", "point 4", "gps 4", "gps coordinate 4",
         "निर्देशांक 4", "निर्देशांक-4", "कोऑर्डिनेट 4", "कोआर्डिनेट 4"]),
+    ("coordinate_5", "Coordinate 5 (निर्देशांक 5)", [
+        "coordinate 5", "coordinates 5", "coordinate-5", "coord 5", "coord-5",
+        "corner 5", "corner-5", "point 5", "gps 5", "gps coordinate 5",
+        "निर्देशांक 5", "निर्देशांक-5", "कोऑर्डिनेट 5", "कोआर्डिनेट 5"]),
 ]
 COORD_FIELD_IDS = [f[0] for f in COORD_FIELD_DEFS]
 for _fid, _disp, _labels in COORD_FIELD_DEFS:

@@ -348,7 +348,103 @@ check("M3 plausible-but-mismatched polygon set + area_mismatch flag",
       s == 200 and cm3.get("boundary_set") is True
       and cm3.get("area_mismatch") is True, cm3)
 
-# ------------------------------------------------------------- J. statics
+# ------------------------------------ N. any-shape plots: 3 / 4 / 5 corners
+print("\n[N] v3.14 any-shape plots — triangle (3), pentagon (5), torn 2-corner")
+r_tri = upload(op, "khatauni_newkind_triangle_2025.png", "new")
+ct = r_tri.get("coordinates") or {}
+check("N1 triangle: 3/3 coordinates parsed, boundary set",
+      ct.get("found") == 3 and ct.get("boundary_set") is True, ct)
+check("N2 triangle verdict valid (shape complete, area consistent)",
+      r_tri["validation"]["verdict"] == "valid", r_tri["validation"]["verdict"])
+s, d_tri = http(BASE, "GET", "/api/documents/" + r_tri["id"], tok=op)
+check("N3 triangle stored with a 3-vertex document boundary",
+      s == 200 and len(d_tri.get("boundary") or []) == 3
+      and d_tri.get("boundary_source") == "document",
+      (s, len(d_tri.get("boundary") or [])))
+rowt = map_row(op, r_tri["id"])
+check("N4 triangle map row: 3 verts + pin at centroid",
+      rowt and len(rowt.get("boundary") or []) == 3 and rowt.get("lat") is not None,
+      rowt)
+check("N5 triangle area_acres ~1.2 (inside the 5% band, no mismatch)",
+      ct.get("area_acres") is not None
+      and abs(ct["area_acres"] - 1.2) / 1.2 <= 0.05
+      and ct.get("area_mismatch") is False, ct)
+
+r_pen = upload(op, "khatauni_newkind_pentagon_2025.png", "new")
+cp = r_pen.get("coordinates") or {}
+check("N6 pentagon: 5/5 coordinates parsed, boundary set",
+      cp.get("found") == 5 and cp.get("boundary_set") is True, cp)
+s, d_pen = http(BASE, "GET", "/api/documents/" + r_pen["id"], tok=op)
+check("N7 pentagon stored with a 5-vertex document boundary",
+      s == 200 and len(d_pen.get("boundary") or []) == 5
+      and d_pen.get("boundary_source") == "document",
+      (s, len(d_pen.get("boundary") or [])))
+check("N8 pentagon area_acres ~2.1 (inside the 5% band)",
+      cp.get("area_acres") is not None
+      and abs(cp["area_acres"] - 2.1) / 2.1 <= 0.05
+      and cp.get("area_mismatch") is False, cp)
+
+r_two = upload(op, "khatauni_newkind_2corners_2025.png", "new")
+c2c = r_two.get("coordinates") or {}
+check("N9 2-corner record: parsed=2, boundary REFUSED (a polygon needs 3)",
+      c2c.get("found") == 2 and c2c.get("boundary_set") is False, c2c)
+check("N10 2-corner record forced to review with a coordinates issue",
+      r_two["validation"]["verdict"] == "review"
+      and any(i.get("field") == "coordinates" for i in r_two["validation"]["issues"]),
+      (r_two["validation"]["verdict"], r_two["validation"]["issues"]))
+row2 = map_row(op, r_two["id"])
+check("N11 2-corner record: kind=new on the map, no boundary",
+      row2 and row2.get("kind") == "new" and row2.get("boundary") is None, row2)
+
+# N12: bulk recognises the per-file shape counts (3/3 triangle, 5/5 pentagon)
+body, ctype = multipart("files",
+                        {"lang": "eng", "doc_type": "land_record", "doc_kind": "new"},
+                        [("khatauni_newkind_triangle_2025.png", sample_bytes("khatauni_newkind_triangle_2025.png")),
+                         ("khatauni_newkind_pentagon_2025.png", sample_bytes("khatauni_newkind_pentagon_2025.png"))])
+s, d = http(BASE, "POST", "/api/bulk/batches", tok=op, data=body,
+            headers={"Content-Type": ctype})
+check("N12 shapes batch created (kind=new)", s == 200, (s, str(d)[:120]))
+if s == 200:
+    b_ = d["id"]
+    items12 = []
+    for _ in range(50):
+        time.sleep(3)
+        s, d = http(BASE, "GET", "/api/bulk/batches/" + b_, tok=op)
+        items12 = d.get("items") or []
+        if items12 and all(it["status"] in ("done", "failed") for it in items12):
+            break
+    it_t = next((x for x in items12 if "triangle" in x["filename"]), None)
+    it_p = next((x for x in items12 if "pentagon" in x["filename"]), None)
+    check("N13 bulk coords n/m follows the shape: 3/3 triangle, 5/5 pentagon",
+          (it_t or {}).get("coords_found") == 3
+          and (it_t or {}).get("coords_total") == 3
+          and (it_p or {}).get("coords_found") == 5
+          and (it_p or {}).get("coords_total") == 5,
+          [(it_t or {}).get("coords_found"), (it_t or {}).get("coords_total"),
+           (it_p or {}).get("coords_found"), (it_p or {}).get("coords_total")])
+    s, imp = http(BASE, "POST", "/api/bulk/batches/%s/import" % b_, tok=op, data={})
+    imported = list((imp or {}).get("doc_ids") or [])
+    tri_docs = [d for d in imported
+                if (map_row(op, d) or {}).get("boundary")
+                and len(map_row(op, d)["boundary"]) == 3]
+    if not tri_docs:
+        # duplicates vs earlier sections -> per-item import with force (UI parity)
+        s, one = http(BASE, "POST", "/api/bulk/items/%s/import" % (it_t or {}).get("id", ""),
+                      tok=op, data={"force": True})
+        if s == 200 and (one or {}).get("doc_id"):
+            imported.append(one["doc_id"])
+            tri_docs.append(one["doc_id"])
+    rows12 = [map_row(op, d) for d in tri_docs]
+    check("N14 bulk import sets the shapes' boundaries (triangle 3 verts, source document)",
+          any(row and len(row.get("boundary") or []) == 3
+              and row.get("boundary_source") == "document" for row in rows12),
+          [None if not r else (len(r.get("boundary") or []), r.get("boundary_source"))
+           for r in rows12])
+else:
+    check("N13 shapes batch ran", False, "batch create failed")
+    check("N14 bulk import", False, "skipped")
+
+# --------------------------------------------------------------- J. statics
 print("\n[J] static wiring")
 html = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
                          "landrec", "static", "index.html"), encoding="utf-8").read()
@@ -375,6 +471,22 @@ for fn in ["khatauni_newkind_rampur_2025.png", "khatauni_newkind_arera_2025.png"
            "sale_deed_newkind_2025.png"]:
     check("J5d sample present: " + fn,
           os.path.exists(os.path.join(SAMPLES, fn)))
+for fn in ["khatauni_newkind_triangle_2025.png", "khatauni_newkind_pentagon_2025.png",
+           "khatauni_newkind_2corners_2025.png"]:
+    check("J5e variable-shape sample present: " + fn,
+          os.path.exists(os.path.join(SAMPLES, fn)))
+commonpy = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
+                             "landrec", "common.py"), encoding="utf-8").read()
+check("J7 any-shape machinery: coordinate_5 + corner-order iteration",
+      "coordinate_5" in html and "coordinate_5" in commonpy
+      and "COORD_FIELD_IDS" in mainpy)
+check("J8 5% mismatch tolerance wired (UI badge + pipeline guard)",
+      "pct <= 5" in html and "_AREA_MISMATCH_TOL" in mainpy)
+check("J9 map tab: 'Area mismatch records' panel + coordinate editor modal",
+      'id="mapAreaConflictBtn"' in html and 'id="mapCoordEditModal"' in html
+      and "mapOpenCoordEditor" in html and "mapAreaMismatchList" in html)
+check("J10 AI panel no longer blocked by the court-DB FAB",
+      "z-index:10005" in html and "hiddenByAi" in html)
 wf_path = os.path.join(os.path.dirname(__file__), "..", ".github", "workflows", "ci.yml")
 check("J6 CI workflow runs this suite",
       os.path.exists(wf_path) and "test_newkind.py" in open(wf_path).read())

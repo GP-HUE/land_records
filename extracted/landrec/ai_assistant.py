@@ -519,11 +519,12 @@ HELP_FEATURES = [
      "• 📏 Computed — the area the portal measures from the record's map boundary "
      "(GPS corners, shoelace geometry): what the land actually spans\n"
      "• The two sit side by side on the Map boundary card and the record detail, "
-     "with a badge: ✓ green when they agree within 25% (OCR/rounding noise is "
-     "normal), ⚠ red 'N% OFF the recorded area' when they don't\n"
+     "with a badge: ✓ green when they agree within 5% (OCR/rounding noise is "
+     "normal), ⚠ red 'N% OFF the recorded area' when they don't — the Map tab's "
+     "'⚠ Area mismatch records' button lists them all with a coordinate editor\n"
      "• Guards for NEW-kind records: a polygon over ~494 acres (>20 lakh m²) is "
      "REFUSED as implausible (a classic OCR digit slip like 77.08 -> 7.08) and the "
-     "last good boundary is kept; plausible-but->50%-off boundaries are written "
+     "last good boundary is kept; plausible-but->5%-off boundaries are written "
      "but auto-flagged to the review queue\n"
      "• A record needs a boundary for the computed area: draw it on 🗺️ Real Map, "
      "or upload a document of kind NEW (its 4 printed corner coordinates set the "
@@ -1191,7 +1192,7 @@ def _area_facts(doc):
 
 def _area_verdict(recorded, comp):
     """(emoji, verdict_text, pct_off) — the same thresholds as the UI badge
-    (✓ within 25%, ⚠ beyond; 🚩 above the implausible-area ceiling)."""
+    (✓ within 5%, ⚠ beyond; 🚩 above the implausible-area ceiling)."""
     if comp is None:
         return None, None, None
     if comp > AREA_MAX_PLOT_M2:
@@ -1202,12 +1203,12 @@ def _area_verdict(recorded, comp):
     if not rec_m2:
         return "⚪", "computed only (no recorded area text to compare)", None
     pct = abs(comp - rec_m2) / rec_m2 * 100.0
-    if pct <= 25.0:
-        return "✓", ("MATCHES the recorded area (%.0f%% apart — inside the 25%% "
+    if pct <= 5.0:
+        return "✓", ("MATCHES the recorded area (%.0f%% apart — inside the 5%% "
                      "tolerance band)" % pct), pct
     return "⚠", ("MISMATCH — %.0f%% OFF the recorded area%s"
-                 % (pct, " (the upload pipeline auto-flags >50% for review)"
-                    if pct > 50 else "")), pct
+                 % (pct, " (the upload pipeline auto-flags >5% for review)"
+                    if pct > 5 else "")), pct
 
 
 def _doc_area(did):

@@ -76,6 +76,22 @@ def rect_corners(center_lat, center_lon, area_m2, aspect=1.4):
             (center_lat + dlat, center_lon - dlon)]
 
 
+def poly_corners(center_lat, center_lon, area_m2, n, rotation_deg=0.0):
+    """N corners (counter-clockwise ring order) of a REGULAR n-gon of EXACTLY
+    area_m2 around (center_lat, center_lon) — a triangle (3), pentagon (5)
+    or any other plot shape, so computed area ≈ recorded area."""
+    # area of a regular n-gon with circumradius R: A = n R² sin(2π/n) / 2
+    r = math.sqrt(2.0 * area_m2 / (n * math.sin(2.0 * math.pi / n)))
+    mlat = M_PER_DEG_LAT
+    mlon = M_PER_DEG_LAT * math.cos(math.radians(center_lat))
+    pts = []
+    for k in range(n):
+        th = math.radians(rotation_deg) + 2.0 * math.pi * k / n
+        pts.append((center_lat + (r * math.sin(th)) / mlat,
+                    center_lon + (r * math.cos(th)) / mlon))
+    return pts
+
+
 def _coord_block(coords, label="Coordinate"):
     out = ["", "Geo Coordinates of Parcel Corners (GPS Survey):"]
     for i, (lat, lon) in enumerate(coords, 1):
@@ -245,6 +261,81 @@ Khatauni Year: 2024-25
 """ + "\n".join(_coord_block(ARERA_DEED_COORDS)) + "\n"
 
 
+# ----- v3.14: variable-shape plots — triangle (3 corners), pentagon (5) -----
+TRI_COORDS = poly_corners(23.43150, 77.43250, 1.2 * ACRE_M2, 3, rotation_deg=18)
+PENT_COORDS = poly_corners(23.17625, 77.31875, 2.1 * ACRE_M2, 5, rotation_deg=60)
+TWOC_COORDS = poly_corners(23.35075, 77.21975, 1.0 * ACRE_M2, 4, rotation_deg=45)
+
+TRIANGLE = """JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)
+State: Madhya Pradesh
+District: Bhopal
+Tehsil: Berasia
+Village: Berasia
+
+Khata Number: 71
+Khasra Number: 9/1
+Survey Number: 264
+Landowner Name: Santosh Kumar Ahirwar
+Father's Name: Ramdayal Ahirwar
+
+Area: 1.2 acre
+Land Type: Irrigated Agricultural
+Ownership: Private
+
+Mutation Number: 3307
+Registration Number: MP/2025/0914
+Khatauni Year: 2024-25
+""" + "\n".join(_coord_block(TRI_COORDS)) + "\n"
+
+PENTAGON = """JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)
+State: Madhya Pradesh
+District: Bhopal
+Tehsil: Huzur
+Village: Sukhi Sewaniya
+
+Khata Number: 83
+Khasra Number: 16/2
+Survey Number: 655
+Landowner Name: Ramnath Kushwaha
+Father's Name: Bholaram Kushwaha
+
+Area: 2.1 acre
+Land Type: Irrigated Agricultural
+Ownership: Private
+
+Mutation Number: 5566
+Registration Number: MP/2025/1871
+Khatauni Year: 2024-25
+""" + "\n".join(_coord_block(PENT_COORDS)) + "\n"
+
+# surveyor printed only TWO corners (the rest smudged in a rain-soaked
+# register) — a polygon cannot be built from 2 points, so the record must
+# land in the review queue with no boundary, never a wrong shape
+TWOCORNERS = """JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)
+State: Madhya Pradesh
+District: Bhopal
+Tehsil: Huzur
+Village: Ratua Ryt
+
+Khata Number: 12
+Khasra Number: 3/5
+Survey Number: 41
+Landowner Name: Jagdish Prasad Meena
+Father's Name: Kalyan Singh Meena
+
+Area: 1.0 acre
+Land Type: Non-Irrigated Agricultural
+Ownership: Private
+
+Khatauni Year: 2024-25
+
+Geo Coordinates of Parcel Corners (GPS Survey):
+Coordinate 1: %.5f N, %.5f E
+Coordinate 2: %.5f N, %.5f E
+Note: remaining corner readings smudged in register; field visit ordered.
+""" % (TWOC_COORDS[0][0], TWOC_COORDS[0][1], TWOC_COORDS[1][0], TWOC_COORDS[1][1])
+
+
 def render(text, font_path, out_path, size=26, noise=True, rotate=0.4):
     font = ImageFont.truetype(font_path, size)
     title = ImageFont.truetype(font_path, size + 8)
@@ -290,8 +381,23 @@ ALL = [
     ("khatauni_newkind_badcoords_2025.png", KHANDWA_BAD),
     ("mutation_newkind_2025.png", MUTATION),
     ("sale_deed_newkind_2025.png", SALE_DEED),
+    # v3.14 variable-shape plots
+    ("khatauni_newkind_triangle_2025.png", TRIANGLE),
+    ("khatauni_newkind_pentagon_2025.png", PENTAGON),
+    ("khatauni_newkind_2corners_2025.png", TWOCORNERS),
 ]
+
+# the three v3.14 additions alone (regenerate them without touching the
+# proven v3.13.x files)
+SHAPES_V314 = ALL[7:]
+
+# tuned render overrides: keeps every field above the low-confidence line
+# (triangle's default render put land_class/registration_no on the border)
+RENDER_OVERRIDES = {
+    "khatauni_newkind_triangle_2025.png": {"size": 25, "rotate": 0.45},
+}
 
 if __name__ == "__main__":
     for fn, text in ALL:
-        render(text, _font(), os.path.join(OUT, fn))
+        render(text, _font(), os.path.join(OUT, fn),
+               **RENDER_OVERRIDES.get(fn, {}))

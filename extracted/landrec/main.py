@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.13.2"
+APP_VERSION = "3.14.0"
 
 
 def _warmup_ocr_worker():
@@ -416,25 +416,32 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
             fields = rescue_info["fields"]
             quality = rescue_info["after"]
 
-    # ---- NEW document kind: read the four printed corner coordinates
-    # (merged BEFORE validation so a weak/unparseable coordinate is flagged
-    # for review like any other low-confidence field)
+    # ---- NEW document kind: read the printed corner coordinates
+    # (a plot may be of ANY shape: triangle 3, rectangle 4, pentagon 5 —
+    # all are merged BEFORE validation so a weak/unparseable coordinate is
+    # flagged for review like any other low-confidence field)
     coord_meta = None
     if doc_kind == "new":
         coords = extractor.extract_coordinates(ocr_result)
         fields.update(coords)
-        ring = []
-        for i in range(1, 5):
-            f = coords.get("coordinate_%d" % i) or {}
-            ll = extractor.parse_coordinate(f.get("value", ""))
+        ring, with_value = [], 0
+        for fid in common.COORD_FIELD_IDS:   # printed order 1..N
+            f = coords.get(fid) or {}
+            raw = str(f.get("value", "") or "").strip()
+            if raw:
+                with_value += 1
+            ll = extractor.parse_coordinate(raw)
             if ll:
                 ring.append(ll)
         parsed = len(ring)
-        coord_meta = {"kind": "new", "found": parsed, "complete": parsed == 4,
-                      "read": len(coords)}
-        # ---- AREA CROSS-CHECK: computed (from the 4 corners) vs recorded
+        # complete = at least a triangle, and EVERY printed corner parsed
+        # (a value that failed to parse means a torn/misread corner —
+        # guessing a shape from a subset would be wrong for a plot)
+        coord_meta = {"kind": "new", "found": parsed, "read": with_value,
+                      "complete": parsed >= 3 and parsed == with_value}
+        # ---- AREA CROSS-CHECK: computed (from the N corners) vs recorded
         # (the printed क्षेत्रफल).  Never trust garbage digits blindly.
-        if parsed == 4:
+        if coord_meta["complete"]:
             area_m2 = extractor.ring_area_m2(ring)
             rec_m2 = _area_str_to_m2(
                 (fields.get("area") or {}).get("value") or "")
@@ -445,16 +452,17 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
                 # ~495+ acres for ONE khasra parcel = an OCR digit blew up
                 # (e.g. 77.08 read as 7.08) — refuse the boundary outright
                 coord_meta["block"] = "implausible_area"
-            elif rec_m2 and abs(area_m2 - rec_m2) / rec_m2 > 0.5:
+            elif rec_m2 and abs(area_m2 - rec_m2) / rec_m2 > _AREA_MISMATCH_TOL:
                 coord_meta["area_mismatch"] = True
 
     validation = validator.validate(fields, scripts=ocr_result["detected_scripts"])
     if coord_meta and not coord_meta["complete"]:
         validation["issues"].append({
             "field": "coordinates", "severity": "review",
-            "msg": "NEW-kind record: only %d/4 corner coordinates readable — "
-                   "map boundary needs all four; verify them before approval"
-                   % coord_meta["found"]})
+            "msg": "NEW-kind record: %d of %d printed corner coordinate(s) "
+                   "readable — the map boundary needs at least 3 and every one "
+                   "of them; verify them before approval"
+                   % (coord_meta["found"], max(coord_meta["read"], coord_meta["found"]))})
         if "coordinates" not in validation["low_confidence_fields"]:
             validation["low_confidence_fields"].append("coordinates")
         if validation["verdict"] == "valid":
@@ -462,10 +470,10 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
     elif coord_meta and coord_meta.get("block") == "implausible_area":
         validation["issues"].append({
             "field": "coordinates", "severity": "review",
-            "msg": "NEW-kind record: the 4 coordinates span ~%.0f acres — "
+            "msg": "NEW-kind record: the %d coordinates span ~%.0f acres — "
                    "implausible for a single parcel (an OCR digit error?): "
                    "boundary NOT set until an officer fixes the corners"
-                   % (coord_meta.get("area_m2", 0) / 4046.86)})
+                   % (coord_meta["found"], coord_meta.get("area_m2", 0) / 4046.86)})
         if "coordinates" not in validation["low_confidence_fields"]:
             validation["low_confidence_fields"].append("coordinates")
         if validation["verdict"] == "valid":
@@ -475,7 +483,7 @@ def _analyze_document(data: bytes, filename: str, langs: list = None,
             "field": "coordinates", "severity": "review",
             "msg": "NEW-kind record: area computed from the coordinates "
                    "(%.2f acres) differs from the recorded area by more than "
-                   "50%% — boundary set, but an officer must confirm the "
+                   "5%% — boundary set, but an officer must confirm the "
                    "corners/units" % (coord_meta.get("area_m2", 0) / 4046.86)})
         if "coordinates" not in validation["low_confidence_fields"]:
             validation["low_confidence_fields"].append("coordinates")
@@ -502,43 +510,55 @@ bulkocr.set_analyzer(_analyze_document)   # bulk worker reuses the same pipeline
 # almost certainly an OCR digit slip, not a real plot
 _MAX_PLOT_M2 = 2_000_000.0    # ≈ 494 acres
 
+# area cross-check tolerance: recorded vs computed (from the boundary) —
+# small OCR/rounding noise of 1-5% is acceptable, anything above it is a
+# mismatch that an officer must confirm
+_AREA_MISMATCH_TOL = 0.05     # 5%
+
 
 def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
-    """NEW-kind record: turn the four printed corner coordinates into the
-    record's map boundary (source 'document') and set its exact GIS pin at
-    the polygon centroid.  Applied automatically on upload / bulk import /
-    verification so the Map tab always reflects the latest corrected values.
+    """NEW-kind record: turn the printed corner coordinates — 3, 4 or 5 of
+    them, any plot shape — into the record's map boundary (source
+    'document') and set its exact GIS pin at the polygon centroid.  Applied
+    automatically on upload / bulk import / verification so the Map tab
+    always reflects the latest corrected values.
     Area cross-check: an implausibly large polygon (OCR digit slip) is
     REFUSED — the last good boundary is kept instead of writing garbage."""
-    pts = []
-    for i in range(1, 5):
-        f = fields.get("coordinate_%d" % i) or {}
-        ll = extractor.parse_coordinate(f.get("value", ""))
+    with_value, parsed = 0, []
+    for fid in common.COORD_FIELD_IDS:     # printed order 1..N
+        raw = str((fields.get(fid) or {}).get("value") or "").strip()
+        if not raw:
+            continue
+        with_value += 1
+        ll = extractor.parse_coordinate(raw)
         if ll:
-            pts.append((i, ll))
-    if len(pts) != 4:
+            parsed.append(ll)
+    # boundary only from >=3 corners AND when every printed coordinate
+    # was readable — a subset could be the wrong shape entirely
+    if len(parsed) < 3 or len(parsed) != with_value:
         return {"boundary_set": False, "pin": None,
-                "corners": len(pts)}
-    ring = [[lat, lon] for _i, (lat, lon) in pts]      # in printed order 1-4
+                "corners": len(parsed), "corners_found": with_value}
+    ring = [[lat, lon] for (lat, lon) in parsed]
     area_m2 = extractor.ring_area_m2(ring)
     area_acres = round(area_m2 / 4046.86, 2)
     if area_m2 > _MAX_PLOT_M2:
-        return {"boundary_set": False, "pin": None, "corners": 4,
+        return {"boundary_set": False, "pin": None, "corners": len(parsed),
                 "reason": "implausible_area", "area_acres": area_acres,
                 "msg": "coordinates span ~%s acres — implausible for one "
                        "parcel; last good boundary kept" % area_acres}
     store.set_boundary(doc_id, ring, "document", user)  # audits boundary_set
-    clat = round(sum(p[1][0] for p in pts) / 4.0, 7)
-    clon = round(sum(p[1][1] for p in pts) / 4.0, 7)
+    n = float(len(parsed))
+    clat = round(sum(p[0] for p in parsed) / n, 7)
+    clon = round(sum(p[1] for p in parsed) / n, 7)
     store.set_location(doc_id, clat, clon)
     store.audit(doc_id, user["id"], user["email"], "location_set",
-                "auto: centroid of the 4 printed corner coordinates "
-                "(new-kind record)")
+                "auto: centroid of the %d printed corner coordinates "
+                "(new-kind record)" % len(parsed))
     rec_m2 = _area_str_to_m2((fields.get("area") or {}).get("value") or "")
-    out = {"boundary_set": True, "pin": [clat, clon], "corners": 4,
+    out = {"boundary_set": True, "pin": [clat, clon], "corners": len(parsed),
            "area_acres": area_acres}
     if rec_m2:
-        out["area_mismatch"] = abs(area_m2 - rec_m2) / rec_m2 > 0.5
+        out["area_mismatch"] = abs(area_m2 - rec_m2) / rec_m2 > _AREA_MISMATCH_TOL
     return out
 
 

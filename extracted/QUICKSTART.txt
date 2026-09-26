@@ -3,7 +3,40 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
-## WHAT'S NEW IN v3.13.2 (26-Sep-2026) — AI ASSISTANT: COURT-DATABASE Q&A (SA) + AREA CROSS-CHECK (BOTH AIs)
+## WHAT'S NEW IN v3.14.0 (26-Sep-2026) — ANY-SHAPE PLOTS (3/4/5 COORDS) + 5% MISMATCH + MAP MISMATCH EDITOR
+### 1) NEW-kind records now handle plots of ANY shape
+  * Land is not always a rectangle: a NEW-format document may print 3
+    coordinates (triangle), 4 (rectangle) or 5 (pentagon). OCR now reads
+    coordinate_1..coordinate_5 — however many the document actually has —
+    and the boundary/polygon is built from exactly THAT many corners:
+      - complete = at least 3 corners AND every printed corner parsed; a
+        corner value that fails to parse = torn/misread paper -> review
+        queue, never a guessed shape
+      - polygon area (shoelace) works for any N; the implausible-area guard
+        (>~494 acres refused) and the recorded-vs-computed cross-check run
+        the same for triangles and pentagons as for rectangles
+  * New samples: khatauni_newkind_triangle_2025.png (3 corners, 1.2 acre),
+    khatauni_newkind_pentagon_2025.png (5 corners, 2.1 acre),
+    khatauni_newkind_2corners_2025.png (only 2 printed -> review, no boundary)
+  * Bulk OCR shows the per-file count as "coordinates: n/m"; verify screen,
+    /api/fields and the coordinates banner follow the actual corner count
+### 2) Area-mismatch tolerance tightened to 5% (was 25%/50%)
+  * Recorded 📄 vs computed 📏: within 1-5% = green ✓ (OCR/rounding noise),
+    strictly above 5% = ⚠ mismatch everywhere — the Map badge, the upload
+    pipeline's auto review-flag, and both AI assistants
+  * NEW: Map tab -> "⚠ Area mismatch records" button (next to Show:
+    Selected/All) lists every record over the 5% band, worst first, with
+    recorded vs computed per row, "🗺 Show on map" and — for verifier/admin —
+    "✏️ Edit coordinates": a full vertex editor (lat/lon per corner) that
+    saves the corrected boundary (audited) and instantly recomputes the badge
+  * Existing samples are already consistent (computed within ~2% of recorded)
+### 3) AI assistant panel no longer blocked by the ⚖️ court-database button
+  * The two floating buttons overlapped the panel's bottom-left corner; the
+    court-DB button now parks itself while the assistant is open (and the
+    panel sits on a higher layer)
+  * Suite test_newkind.py extended (any-shape uploads incl. bulk import).
+
+
 The AI assistant learned two judge-favourite question types this release.
 ### 1) SA AI — ask ANYTHING about the ⚖️ court cases database (admins only)
   * In SA mode the assistant now answers plain-language questions over the

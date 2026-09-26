@@ -325,28 +325,107 @@ def ring_area_m2(ring) -> float:
     return abs(a2) / 2.0
 
 
+_COORD_LABEL_WORDS = (r"coordinate|coordinates|coord|corner|point|gps|"
+                      r"निर्देशांक|कोऑर्डिनेट|कोआर्डिनेट")
+_COORD_IDX_RE = re.compile(
+    r"(" + _COORD_LABEL_WORDS + r")\s*[-:]?\s*([1-5])\b\s*[:\-]?\s*(.*)$",
+    re.I)
+_COORD_NOIDX_RE = re.compile(
+    r"(" + _COORD_LABEL_WORDS + r")\s*[:\-]?\s*(.*)$", re.I)
+_COORD_LETTER_RE = re.compile(
+    r"^(\s*[\|>\-\u00b7*]*\s*)(" + _COORD_LABEL_WORDS +
+    r")(\s*[-:]?\s*)([A-Za-z])(?=[\s:])(.*)$", re.I)
+# OCR reads the corner NUMBER as a letter: 5->S, 0->O, 1->I/l, 8->B, 6->G, 2->Z
+_OCR_DIGIT_FIX = {"s": "5", "o": "0", "i": "1", "l": "1", "b": "8", "g": "6",
+                  "z": "2"}
+_COORD_DAMAGE_RE = re.compile(
+    r"torn|illegib|anpath|अनपठ|smudg|unclear|unread|missing|damag|faded"
+    r"|^na\b|----", re.I)
+
+
+def _repair_corner_digits(text: str) -> str:
+    """Fix corner-number OCR (e.g. 'Coordinate S: 23.17 N' -> 'Coordinate 5:')
+    so the pair still binds to its own slot."""
+    out = []
+    for line in text.splitlines():
+        m = _COORD_LETTER_RE.match(line)
+        if m and m.group(4).lower() in _OCR_DIGIT_FIX                 and re.search(r"\d", m.group(5) or ""):
+            line = (m.group(1) + m.group(2) + m.group(3)
+                    + _OCR_DIGIT_FIX[m.group(4).lower()] + m.group(5))
+        out.append(line)
+    return "\n".join(out)
+
+
+def _looks_like_coord_value(v: str) -> bool:
+    """True when a label remainder plausibly IS a printed corner: a decimal-
+    degree number, or a legibility/tear marker an officer should correct.
+    Anything else (section headers like '... (GPS Survey)', page junk) is
+    not a corner — so absent corner slots stay absent."""
+    vv = (v or "").strip()
+    if not vv:
+        return False
+    if re.search(r"\d{1,3}\.\d", vv):
+        return True
+    return bool(_COORD_DAMAGE_RE.search(vv))
+
+
+def _coord_clean(value: str) -> str:
+    value = _clean_value(_strip_junk(value or ""))
+    # a coordinate pair is short — never let it swallow header junk
+    value = re.split(r"\s{2,}", value)[0][:60]
+    if len(value.split()) > 8:
+        value = " ".join(value.split()[:8])
+    return value
+
+
 def extract_coordinates(ocr_result: dict) -> dict:
-    """Read the four printed corner coordinates (NEW document kind only).
-    Same label machinery + confidence model as extract_fields; a value that
-    does not parse as a lat/lon pair is kept (officer can correct it) but
-    its confidence is capped so the record lands in the review queue."""
+    """Read the printed corner coordinates (NEW document kind only) — a plot
+    may print 3 corners (triangle), 4 or 5, so coordinate_1..coordinate_5 are
+    all read and the SHAPE comes from however many the paper actually has.
+
+    Binder strategy specific to corner lines (labels are well-known):
+      1. repair OCR'd corner digits (5->S, 0->O, 1->I/l, 8->B, 6->G, 2->Z)
+      2. 'Coordinate 3: ...' style indexed lines fill their own slot (the
+         better/parseable value wins if a line repeats)
+      3. a corner line whose NUMBER was dropped by OCR (e.g. 'निर्देशांक :
+         23.20 N, 77.08 E') fills the first empty slot, in printed order
+      4. a value that does not parse as a lat/lon pair is kept (officer can
+         correct it) but its confidence is capped, so the record lands in
+         the review queue
+    """
     raw_text = _norm_text(ocr_result["full_text"])
-    text = _maybe_bidi_normalize(raw_text)
-    rtl = text != raw_text
+    text = _repair_corner_digits(_maybe_bidi_normalize(raw_text))
     mean_ocr_conf = ocr_result["mean_conf"] / 100.0
+
+    slots = {}      # corner number -> (value, quality)
+    homeless = []   # coordinate-ish line values without a corner number
+    for raw in text.splitlines():
+        line = raw.strip().strip("|*\u00b7> ")
+        if not line:
+            continue
+        m = _COORD_IDX_RE.search(line)
+        if m:
+            idx = int(m.group(2))
+            value = _coord_clean(m.group(3))
+            if not value:
+                continue
+            if idx not in slots or (parse_coordinate(slots[idx][0]) is None
+                                    and parse_coordinate(value) is not None):
+                slots[idx] = (value, 0.9)
+            continue
+        m2 = _COORD_NOIDX_RE.search(line)
+        if m2:
+            rest = _coord_clean(m2.group(2))
+            if rest and _looks_like_coord_value(rest):
+                homeless.append(rest)
+    for idx in range(1, 6):
+        if idx in slots or not homeless:
+            continue
+        slots[idx] = (homeless.pop(0), 0.8)
+
     fields = {}
-    for fid, _display, _labels in common.COORD_FIELD_DEFS:
-        remainder, quality = _find_value(text, fid, rtl=rtl)
-        if not remainder:
-            continue
-        value = _strip_junk(remainder)
-        if not value:
-            continue
-        # a coordinate pair is short — never let it swallow header junk
-        value = re.split(r"\s{2,}", value)[0][:60]
-        if len(value.split()) > 8:
-            value = " ".join(value.split()[:8])
-        fields[fid] = {"value": value, "quality": quality}
+    for idx, (value, quality) in sorted(slots.items()):
+        fields["coordinate_%d" % idx] = {"value": value, "quality": quality}
 
     for fid, f in fields.items():
         wc = _value_word_conf(f["value"], ocr_result)
