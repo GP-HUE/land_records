@@ -444,6 +444,52 @@ else:
     check("N13 shapes batch ran", False, "batch create failed")
     check("N14 bulk import", False, "skipped")
 
+# ------------------------ P. v3.15 ANY number of corners (6, 8 …) ----------
+print("\n[P] v3.15 any-N corners — hexagon (6) + octagon (8) shaped plots")
+r_hex = upload(op, "khatauni_newkind_hexagon_2025.png", "new")
+ch = r_hex.get("coordinates") or {}
+check("P1 hexagon: 6/6 coordinates parsed, boundary set",
+      ch.get("found") == 6 and ch.get("boundary_set") is True, ch)
+hex_fields = sorted(k for k in (r_hex.get("fields") or {})
+                    if k.startswith("coordinate_"))
+check("P2 hexagon fields go up to coordinate_6 (any-N columns)",
+      hex_fields == ["coordinate_%d" % i for i in range(1, 7)], hex_fields)
+check("P3 hexagon verdict valid (all six corners readable)",
+      r_hex["validation"]["verdict"] == "valid", r_hex["validation"]["verdict"])
+s, d_hex = http(BASE, "GET", "/api/documents/" + r_hex["id"], tok=op)
+check("P4 hexagon stored with a 6-vertex document boundary",
+      s == 200 and len(d_hex.get("boundary") or []) == 6
+      and d_hex.get("boundary_source") == "document",
+      (s, len(d_hex.get("boundary") or [])))
+rowh = map_row(op, r_hex["id"])
+check("P5 hexagon map row: 6 verts, pin at the hexagon centroid",
+      rowh and len(rowh.get("boundary") or []) == 6
+      and abs((rowh.get("lat") or 0) - 23.3528) < 0.004
+      and abs((rowh.get("lon") or 0) - 77.1864) < 0.004,
+      rowh)
+check("P6 hexagon area_acres ~1.6 (inside the 5% band, no mismatch)",
+      ch.get("area_acres") is not None
+      and abs(ch["area_acres"] - 1.6) / 1.6 <= 0.05
+      and ch.get("area_mismatch") is False, ch)
+
+r_oct = upload(op, "khatauni_newkind_octagon_2025.png", "new")
+co8 = r_oct.get("coordinates") or {}
+check("P7 octagon: 8/8 coordinates parsed, boundary set",
+      co8.get("found") == 8 and co8.get("boundary_set") is True, co8)
+oct_fields = sorted(k for k in (r_oct.get("fields") or {})
+                    if k.startswith("coordinate_"))
+check("P8 octagon fields go up to coordinate_8",
+      oct_fields == ["coordinate_%d" % i for i in range(1, 9)], oct_fields)
+s, d_oct = http(BASE, "GET", "/api/documents/" + r_oct["id"], tok=op)
+check("P9 octagon stored with an 8-vertex document boundary",
+      s == 200 and len(d_oct.get("boundary") or []) == 8
+      and d_oct.get("boundary_source") == "document",
+      (s, len(d_oct.get("boundary") or [])))
+check("P10 octagon area_acres ~2.4 (inside the 5% band)",
+      co8.get("area_acres") is not None
+      and abs(co8["area_acres"] - 2.4) / 2.4 <= 0.05
+      and co8.get("area_mismatch") is False, co8)
+
 # --------------------------------------------------------------- J. statics
 print("\n[J] static wiring")
 html = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
@@ -475,11 +521,23 @@ for fn in ["khatauni_newkind_triangle_2025.png", "khatauni_newkind_pentagon_2025
            "khatauni_newkind_2corners_2025.png"]:
     check("J5e variable-shape sample present: " + fn,
           os.path.exists(os.path.join(SAMPLES, fn)))
+for fn in ["khatauni_newkind_hexagon_2025.png", "khatauni_newkind_octagon_2025.png"]:
+    check("J5f any-N sample present: " + fn,
+          os.path.exists(os.path.join(SAMPLES, fn)))
 commonpy = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
                              "landrec", "common.py"), encoding="utf-8").read()
 check("J7 any-shape machinery: coordinate_5 + corner-order iteration",
       "coordinate_5" in html and "coordinate_5" in commonpy
       and "COORD_FIELD_IDS" in mainpy)
+extpy = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
+                          "landrec", "extractor.py"), encoding="utf-8").read()
+check("J11 any-N machinery: corner slots beyond 5 (MAX_CORNERS generator + "
+      "multi-digit corner numbers + digit-sandwich repair + dynamic UI labels)",
+      "MAX_CORNERS" in commonpy and '"coordinate_%d" % _n' in commonpy
+      and "\\d{1,2}" in extpy
+      and "common.MAX_CORNERS" in extpy and "_repair_value_digits" in extpy
+      and "for(let _ci=6;_ci<=20" in html
+      and "for(let _ci=1;_ci<=20" in html)
 check("J8 5% mismatch tolerance wired (UI badge + pipeline guard)",
       "pct <= 5" in html and "_AREA_MISMATCH_TOL" in mainpy)
 check("J9 map tab: 'Area mismatch records' panel + coordinate editor modal",

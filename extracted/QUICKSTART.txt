@@ -3,6 +3,31 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.0 (26-Sep-2026) — ANY NUMBER OF COORDINATES (ANY POLYGON)
+### NEW-kind documents: corner count is no longer capped at 5
+  * Earlier releases OCR'd the printed GPS corners into coordinate_1..5, so
+    plots with more than five vertices lost the rest. v3.15 removes the
+    limit: slots coordinate_1..coordinate_20 are generated (a 20-corner cap
+    is the only sanity bound), and the document's boundary/polygon is built
+    from EXACTLY as many corners as the paper prints — triangle, rectangle,
+    pentagon, hexagon, octagon, any polygon
+  * The OCR corner-line binder now understands multi-digit corner numbers
+    ("Coordinate 6:", "Coordinate 12:" …) with the same corner-digit repair
+    (S->5, O->0, I/l->1, B->8, G->6, Z->2), the header-junk guard (section
+    titles like "Coordinates of Parcel Corners (GPS Survey)" never bind as
+    a corner), and numbered lines whose value is not a plausible coordinate
+    (torn/illegible markers kept for the officer) are handled per slot
+  * Everything downstream follows N automatically: the upload pipeline's
+    found/read counts, the "complete shape = all N parsed" rule, shoelace
+    polygon area + 5% recorded-vs-computed cross-check, the implausible-area
+    guard, bulk OCR "coordinates: n/m", the verify form (all N corner inputs,
+    dynamically labelled) and the banner — 3/3, 5/5, 6/6, 8/8 …
+  * New samples: khatauni_newkind_hexagon_2025.png (SIX corners, 1.6 acre,
+    exact geometry) and khatauni_newkind_octagon_2025.png (EIGHT corners,
+    2.4 acre) — both OCR to 6/6 and 8/8 and draw the true polygon on the map
+  * Map digitizing / the "✏️ Edit coordinates" editor already accepted any
+    number of vertices; now document OCR matches that: truly ANY N
+
 ## WHAT'S NEW IN v3.14.0 (26-Sep-2026) — ANY-SHAPE PLOTS (3/4/5 COORDS) + 5% MISMATCH + MAP MISMATCH EDITOR
 ### 1) NEW-kind records now handle plots of ANY shape
   * Land is not always a rectangle: a NEW-format document may print 3

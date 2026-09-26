@@ -308,6 +308,52 @@ Registration Number: MP/2025/1871
 Khatauni Year: 2024-25
 """ + "\n".join(_coord_block(PENT_COORDS)) + "\n"
 
+# ----- v3.15: ANY number of printed corners — hexagon (6), octagon (8) -----
+HEX_COORDS = poly_corners(23.35280, 77.18640, 1.6 * ACRE_M2, 6, rotation_deg=12)
+OCT_COORDS = poly_corners(23.29750, 77.35660, 2.4 * ACRE_M2, 8, rotation_deg=22)
+
+HEXAGON = """JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)
+State: Madhya Pradesh
+District: Bhopal
+Tehsil: Huzur
+Village: Kaliasot
+
+Khata Number: 44
+Khasra Number: 7/3
+Survey Number: 507
+Landowner Name: Kailash Narayan Sahu
+Father's Name: Mangilal Sahu
+
+Area: 1.6 acre
+Land Type: Irrigated Agricultural
+Ownership: Private
+
+Mutation Number: 6612
+Registration Number: MP/2025/2280
+Khatauni Year: 2024-25
+""" + "\n".join(_coord_block(HEX_COORDS)) + "\n"
+
+OCTAGON = """JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)
+State: Madhya Pradesh
+District: Bhopal
+Tehsil: Berasia
+Village: Barkhedi Abdulla
+
+Khata Number: 19
+Khasra Number: 11/2
+Survey Number: 812
+Landowner Name: Shakuntala Bai Rajput
+Father's Name: Harisingh Rajput
+
+Area: 2.4 acre
+Land Type: Non-Irrigated Agricultural
+Ownership: Private
+
+Mutation Number: 7741
+Registration Number: MP/2025/3355
+Khatauni Year: 2024-25
+""" + "\n".join(_coord_block(OCT_COORDS)) + "\n"
+
 # surveyor printed only TWO corners (the rest smudged in a rain-soaked
 # register) — a polygon cannot be built from 2 points, so the record must
 # land in the review queue with no boundary, never a wrong shape
@@ -336,7 +382,9 @@ Note: remaining corner readings smudged in register; field visit ordered.
 """ % (TWOC_COORDS[0][0], TWOC_COORDS[0][1], TWOC_COORDS[1][0], TWOC_COORDS[1][1])
 
 
-def render(text, font_path, out_path, size=26, noise=True, rotate=0.4):
+def render(text, font_path, out_path, size=26, noise=True, rotate=0.4, seed=None):
+    if seed is not None:
+        np.random.seed(seed)     # deterministic scan-speckle per sample
     font = ImageFont.truetype(font_path, size)
     title = ImageFont.truetype(font_path, size + 8)
     lines = text.splitlines()
@@ -385,16 +433,28 @@ ALL = [
     ("khatauni_newkind_triangle_2025.png", TRIANGLE),
     ("khatauni_newkind_pentagon_2025.png", PENTAGON),
     ("khatauni_newkind_2corners_2025.png", TWOCORNERS),
+    # v3.15 any-number-of-corners plots
+    ("khatauni_newkind_hexagon_2025.png", HEXAGON),
+    ("khatauni_newkind_octagon_2025.png", OCTAGON),
 ]
 
 # the three v3.14 additions alone (regenerate them without touching the
 # proven v3.13.x files)
-SHAPES_V314 = ALL[7:]
+SHAPES_V314 = ALL[7:10]
+# the two v3.15 additions alone
+SHAPES_V315 = ALL[10:]
 
 # tuned render overrides: keeps every field above the low-confidence line
 # (triangle's default render put land_class/registration_no on the border)
 RENDER_OVERRIDES = {
     "khatauni_newkind_triangle_2025.png": {"size": 25, "rotate": 0.45},
+    # v3.15: tuned strictly — probe = real server OCR + corner binder, and a
+    # candidate only wins when EVERY corner sits on its true vertex (worst
+    # L1 < 0.0008°) and the polygon area is inside the 5% band
+    "khatauni_newkind_hexagon_2025.png": {"size": 25, "rotate": 0.5,
+                                          "seed": 20240926},
+    "khatauni_newkind_octagon_2025.png": {"size": 26, "rotate": 0.6,
+                                          "seed": 20240926},
 }
 
 if __name__ == "__main__":

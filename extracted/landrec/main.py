@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.14.0"
+APP_VERSION = "3.15.0"
 
 
 def _warmup_ocr_worker():
@@ -517,8 +517,9 @@ _AREA_MISMATCH_TOL = 0.05     # 5%
 
 
 def _apply_document_coordinates(doc_id: str, fields: dict, user: dict) -> dict:
-    """NEW-kind record: turn the printed corner coordinates — 3, 4 or 5 of
-    them, any plot shape — into the record's map boundary (source
+    """NEW-kind record: turn the printed corner coordinates — 3, 4, 5, 6, 7 …
+    ANY number of them, any plot shape — into the record's map boundary
+    (source
     'document') and set its exact GIS pin at the polygon centroid.  Applied
     automatically on upload / bulk import / verification so the Map tab
     always reflects the latest corrected values.

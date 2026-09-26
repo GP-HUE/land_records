@@ -328,7 +328,7 @@ def ring_area_m2(ring) -> float:
 _COORD_LABEL_WORDS = (r"coordinate|coordinates|coord|corner|point|gps|"
                       r"निर्देशांक|कोऑर्डिनेट|कोआर्डिनेट")
 _COORD_IDX_RE = re.compile(
-    r"(" + _COORD_LABEL_WORDS + r")\s*[-:]?\s*([1-5])\b\s*[:\-]?\s*(.*)$",
+    r"(" + _COORD_LABEL_WORDS + r")\s*[-:]?\s*(\d{1,2})\b\s*[:\-]?\s*(.*)$",
     re.I)
 _COORD_NOIDX_RE = re.compile(
     r"(" + _COORD_LABEL_WORDS + r")\s*[:\-]?\s*(.*)$", re.I)
@@ -356,6 +356,26 @@ def _repair_corner_digits(text: str) -> str:
     return "\n".join(out)
 
 
+# a letter SANDWICHED between digits in a coordinate VALUE is never a real
+# letter — the corner values are pure decimal degrees, so '77.3S73' is the
+# OCR of '77.3573' (S->5), '23.2970l' style endings stay untouched (l is at
+# the edge, the parser tolerates it), and genuine direction letters (N/S/E/W)
+# are only ever written next to whitespace, never between two digits
+_DIGIT_SANDWICH_RE = re.compile(r"(?<=\d)([A-Za-z])(?=\d)")
+
+
+def _repair_value_digits(value: str) -> str:
+    """Fix letter-in-digit OCR slips inside a corner VALUE ('77.3S73' ->
+    '77.3573'): coordinate values are decimal degrees, so a letter with a
+    digit on BOTH sides must be a misread digit.  Direction letters and
+    damage-marker words (torn/anpathiya/…) are never digit-sandwiched, so
+    they pass through unchanged."""
+    def _sub(m):
+        fix = _OCR_DIGIT_FIX.get(m.group(1).lower())
+        return fix if fix else m.group(1)
+    return _DIGIT_SANDWICH_RE.sub(_sub, value)
+
+
 def _looks_like_coord_value(v: str) -> bool:
     """True when a label remainder plausibly IS a printed corner: a decimal-
     degree number, or a legibility/tear marker an officer should correct.
@@ -380,8 +400,9 @@ def _coord_clean(value: str) -> str:
 
 def extract_coordinates(ocr_result: dict) -> dict:
     """Read the printed corner coordinates (NEW document kind only) — a plot
-    may print 3 corners (triangle), 4 or 5, so coordinate_1..coordinate_5 are
-    all read and the SHAPE comes from however many the paper actually has.
+    may print 3 corners (triangle), 4, 5, 6, 7 … ANY number up to
+    common.MAX_CORNERS, so coordinate_1..coordinate_N are all read and the
+    SHAPE comes from however many the paper actually has.
 
     Binder strategy specific to corner lines (labels are well-known):
       1. repair OCR'd corner digits (5->S, 0->O, 1->I/l, 8->B, 6->G, 2->Z)
@@ -406,19 +427,24 @@ def extract_coordinates(ocr_result: dict) -> dict:
         m = _COORD_IDX_RE.search(line)
         if m:
             idx = int(m.group(2))
-            value = _coord_clean(m.group(3))
+            if idx < 1 or idx > common.MAX_CORNERS:
+                continue   # runaway header number — not a corner line
+            value = _repair_value_digits(_coord_clean(m.group(3)))
             if not value:
                 continue
+            if not _looks_like_coord_value(value):
+                continue   # numbered section junk ('... Corners (GPS 2)'),
+                           # never a corner value — slot stays absent
             if idx not in slots or (parse_coordinate(slots[idx][0]) is None
                                     and parse_coordinate(value) is not None):
                 slots[idx] = (value, 0.9)
             continue
         m2 = _COORD_NOIDX_RE.search(line)
         if m2:
-            rest = _coord_clean(m2.group(2))
+            rest = _repair_value_digits(_coord_clean(m2.group(2)))
             if rest and _looks_like_coord_value(rest):
                 homeless.append(rest)
-    for idx in range(1, 6):
+    for idx in range(1, common.MAX_CORNERS + 1):
         if idx in slots or not homeless:
             continue
         slots[idx] = (homeless.pop(0), 0.8)

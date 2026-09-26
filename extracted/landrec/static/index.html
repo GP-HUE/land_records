@@ -1208,7 +1208,7 @@
             <label class="field-label" for="docKindSelect">🧭 दस्तावेज़ किस्म / Document Kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप में प्लॉट के 4 कोनों के GPS निर्देशांक छपे होते हैं — नक्शे पर सीमा + पिन अपने आप बनती है)</span></label>
             <select id="docKindSelect" style="max-width:360px">
               <option value="old">पुराना / Old — standard paper record (no printed coordinates)</option>
-              <option value="new">नया / New — 3-5 printed corner coordinates (any plot shape) → auto map boundary + pin</option>
+              <option value="new">नया / New — printed corner coordinates (3, 4, 5, 6 … any number, any plot shape) → auto map boundary + pin</option>
             </select>
           </div>
           <div class="formfield" style="margin-bottom:14px">
@@ -1405,7 +1405,7 @@
               <label class="field-label" for="bulkKind">🧭 दस्तावेज़ किस्म / Document kind <span style="font-weight:400;color:var(--muted)">(नए प्रारूप = 4 निर्देशांक → map boundary)</span></label>
               <select id="bulkKind">
                 <option value="old">पुराना / Old — no printed coordinates</option>
-                <option value="new">नया / New — 3-5 corner coordinates (any shape) → auto map boundary</option>
+                <option value="new">नया / New — corner coordinates (3, 4, 5, 6 … any number) → auto map boundary</option>
               </select>
             </div>
           </div>
@@ -3007,6 +3007,8 @@ const LABELS={
   coordinate_4:'Coordinate 4 — corner lat/lon (निर्देशांक 4)',
   coordinate_5:'Coordinate 5 — corner lat/lon (निर्देशांक 5)'
 };
+// v3.15: ANY number of printed corners — labels for coordinate_6..20
+for(let _ci=6;_ci<=20;_ci++){ LABELS['coordinate_'+_ci]='Coordinate '+_ci+' — corner lat/lon (निर्देशांक '+_ci+')'; }
 // field label in the current language
 function fl(fid){ return pick(LABELS[fid] || fid); }
 
@@ -3150,8 +3152,9 @@ function showResult(doc){
   step3Box.innerHTML = '';
   const step3Keys = ['village', 'tehsil', 'district', 'state', 'land_class', 'ownership_type', 'mutation_no', 'registration_no', 'khatauni_year'];
   step3Keys.forEach(fid => buildInputField(step3Box, fid, f[fid]));
-  // NEW document kind: the four printed corner coordinates, editable like any field
-  ['coordinate_1','coordinate_2','coordinate_3','coordinate_4','coordinate_5'].forEach(fid=>{ if(f[fid]) buildInputField(step3Box, fid, f[fid]); });
+  // NEW document kind: the printed corner coordinates — 3, 4, 5, 6 … ANY
+  // number, editable like any field (only the corners the paper has appear)
+  for(let _ci=1;_ci<=20;_ci++){ const fid='coordinate_'+_ci; if(f[fid]) buildInputField(step3Box, fid, f[fid]); }
 
   // Step 4 OCR text
   $('#ocrPreview').textContent = doc.ocr.text_preview || t('कोई ओसीआर पाठ उपलब्ध नहीं है', 'No text detected');

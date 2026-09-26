@@ -208,6 +208,23 @@ COORD_FIELD_DEFS = [
         "corner 5", "corner-5", "point 5", "gps 5", "gps coordinate 5",
         "निर्देशांक 5", "निर्देशांक-5", "कोऑर्डिनेट 5", "कोआर्डिनेट 5"]),
 ]
+
+# --- v3.15: ANY number of printed corners -----------------------------------
+# A plot can be a triangle, rectangle, pentagon, hexagon, octagon … — the
+# paper simply prints one numbered corner line per vertex.  Slots 6..N are
+# generated programmatically so documents with six or more corners bind just
+# like the first five (a sane cap of 20 corners per parcel is plenty).
+MAX_CORNERS = 20
+for _n in range(6, MAX_CORNERS + 1):
+    COORD_FIELD_DEFS.append((
+        "coordinate_%d" % _n, "Coordinate %d (निर्देशांक %d)" % (_n, _n), [
+            "coordinate %d" % _n, "coordinates %d" % _n,
+            "coordinate-%d" % _n, "coord %d" % _n, "coord-%d" % _n,
+            "corner %d" % _n, "corner-%d" % _n, "point %d" % _n,
+            "gps %d" % _n, "gps coordinate %d" % _n,
+            "निर्देशांक %d" % _n, "निर्देशांक-%d" % _n,
+            "कोऑर्डिनेट %d" % _n, "कोआर्डिनेट %d" % _n]))
+del _n
 COORD_FIELD_IDS = [f[0] for f in COORD_FIELD_DEFS]
 for _fid, _disp, _labels in COORD_FIELD_DEFS:
     FIELD_LABELS[_fid] = _disp
