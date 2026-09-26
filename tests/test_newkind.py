@@ -360,7 +360,11 @@ check("J3 upload + bulk JS both send doc_kind",
       "fd.append('doc_kind'" in html and html.count("doc_kind") >= 4)
 check("J4 map knows the 'document' boundary source (badge + purple)",
       "Printed on document" in html and "#7c3aed" in html)
-check("J5 version bumped to 3.13.1", 'APP_VERSION = "3.13.1"' in mainpy)
+import re as _re_ver
+_mver = _re_ver.search(r'APP_VERSION = "(\d+)\.(\d+)\.(\d+)"', mainpy)
+check("J5 version bumped to >= 3.13.1",
+      bool(_mver) and tuple(int(x) for x in _mver.groups()) >= (3, 13, 1),
+      _mver.group(0) if _mver else "APP_VERSION not found")
 check("J5b geo guard ceiling + reason wired", "_MAX_PLOT_M2" in mainpy
       and "implausible_area" in mainpy and "area_mismatch" in mainpy)
 check("J5c area cross-check badge in UI", "mapAreaMatchBadge" in html

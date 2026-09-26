@@ -18,7 +18,7 @@ import json
 import re
 import time
 
-from . import ai_support, common, risk, store
+from . import ai_support, common, extractor, risk, store
 
 # "show more" state: last search results per user (in-memory, resets on restart)
 _last_results = {}
@@ -510,6 +510,27 @@ HELP_FEATURES = [
      "Use it for judge demos (prepare data → restore it live), machine migration, or "
      "disaster recovery."),
 
+    # --- recorded vs computed area cross-check (map) ---
+    (r"\b(computed area|recorded area|measured area|calculated area|rakba|रकबा|"
+     r"area (cross.?check|match|mismatch)|area.{0,25}(map|boundary))\b",
+     "📐 RECORDED vs COMPUTED AREA — the map area cross-check:\n"
+     "• 📄 Recorded — the क्षेत्रफल / area printed on the document, read by OCR "
+     "(e.g. '1.8 acre'): what the paper claims\n"
+     "• 📏 Computed — the area the portal measures from the record's map boundary "
+     "(GPS corners, shoelace geometry): what the land actually spans\n"
+     "• The two sit side by side on the Map boundary card and the record detail, "
+     "with a badge: ✓ green when they agree within 25% (OCR/rounding noise is "
+     "normal), ⚠ red 'N% OFF the recorded area' when they don't\n"
+     "• Guards for NEW-kind records: a polygon over ~494 acres (>20 lakh m²) is "
+     "REFUSED as implausible (a classic OCR digit slip like 77.08 -> 7.08) and the "
+     "last good boundary is kept; plausible-but->50%-off boundaries are written "
+     "but auto-flagged to the review queue\n"
+     "• A record needs a boundary for the computed area: draw it on 🗺️ Real Map, "
+     "or upload a document of kind NEW (its 4 printed corner coordinates set the "
+     "boundary automatically)\n"
+     "Try: 'computed area of <record id>', 'area of survey 312', or "
+     "'which records have an area mismatch?'"),
+
     # --- real map / gis / digitize ---
     (r"\b(real map|map tab|naksha|नक्शा|gis|boundary|boundaries|plot map|digitize|coordinates|satellite|topo|khasra map|bhu.?naksha)\b",
      "🗺️ REAL MAP tab:\n"
@@ -557,6 +578,10 @@ HELP_FEATURES = [
      "admin's password (checked server-side only). In SA mode I can plan and "
      "coordinate across features: 'verify record <id>', 'reject record <id> because "
      "…', 'delete record <id>', 'assign record <id> to verification officer'. "
+     "SA also answers ANY question about the ⚖️ court database (pending / stay / "
+     "decided cases, courts covered, parties, next hearings, a case number) — and, "
+     "like normal mode, runs the 📐 area cross-check ('computed area of <record id>', "
+     "'which records have an area mismatch?'). "
      "Consequential actions still stop at the 📋 AI Approval Center, and everything "
      "I do is logged in the 📊 SA Activity Report. The session lasts until you "
      "type 'exit SA' or log out (an app restart also ends it)."),
@@ -641,6 +666,12 @@ def _doc_by_id(doc_id):
         v = val(fid)
         if v:
             lines.append("%s: %s" % (label, v))
+    _rec, _comp, _src = _area_facts(doc)
+    if _comp is not None:
+        _emoji, _verdict, _pct = _area_verdict(_rec, _comp)
+        lines.append("📐 Map area: 📄 recorded %s | 📏 computed ≈ %.2f acres — %s %s"
+                     % (_rec or "?", _comp / 4046.86, _emoji or "⚪",
+                        (_verdict or "").split(" (")[0]))
     row = _result_row({"id": doc["id"], "filename": doc.get("filename", ""),
                        "doc_type": doc.get("doc_type", ""), "status": doc.get("status", ""),
                        "fields": {k: {"value": val(k)} for k in ("owner_name", "survey_number", "village")}})
@@ -1104,6 +1135,176 @@ def _risk_lands(qn, want_rows=True):
     return {"type": "search", "answer": "\n".join(lines), "results": rows}
 
 
+# --------------------------------------------------------------------------
+# Area cross-check: 📄 recorded (printed) vs 📏 computed (map boundary)
+# --------------------------------------------------------------------------
+AREA_WORD = r"\b(area|rakba|रकबा|क्षेत्रफल)\b"
+AREA_FOCUS = (r"\b(computed|recorded|measured|calculated|printed)\b[^.]{0,40}\barea\b|"
+              r"\barea\b[^.]{0,40}\b(computed|measured|calculated|match|mismatch|dismatch|"
+              r"differ|map|boundary|coordinates|off|cross.?check)\b|"
+              r"\barea (mis)?match\b|"
+              r"\b(check|cross.?check|verify|milao|मिलाओ|मिलान)\b[^.]{0,25}\b(area|rakba|रकबा|क्षेत्रफल)\b|"
+              r"\b(area|rakba|रकबा|क्षेत्रफल)\b[^.]{0,25}\b(check|verify|survey|khasra|sahi|galat)\b")
+AREA_MAX_PLOT_M2 = 2_000_000.0  # same ~494-acre per-parcel guard as the pipeline
+
+
+def _area_str_to_m2(area_str):
+    """Mirror of the pipeline parser: '1.8 acre' / '45 सेंट' / '2 bigha' -> m².
+    Unknown or absent unit -> assume acres (the Indian-records default)."""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*([A-Za-z\u0900-\u097F\u0B80-\u0BFF]*)",
+                  str(area_str or ""))
+    if not m:
+        return None
+    val = float(m.group(1))
+    unit = (m.group(2) or "").lower()
+    if not unit or "acre" in unit or unit in ("ac", "acres", "acre.") \
+       or "एकड़" in unit or "एकड" in unit or "ekad" in unit:
+        return val * 4046.86
+    if "cent" in unit or "सेंट" in unit:
+        return val * 40.4686
+    if "bigha" in unit or "बिगा" in unit or "बिगहा" in unit:
+        return val * 2529.29
+    return val * 4046.86
+
+
+def _area_facts(doc):
+    """(recorded_area_str, computed_m2, boundary_source) for one document row —
+    works for both list_documents rows and get_document rows."""
+    f = doc.get("fields")
+    if not f:
+        try:
+            f = json.loads(doc.get("extracted_json") or "{}")
+        except Exception:  # noqa: BLE001
+            f = {}
+    recorded = ""
+    if isinstance(f.get("area"), dict):
+        recorded = str(f.get("area", {}).get("value") or "").strip()
+    comp = None
+    if doc.get("boundary_geojson"):
+        try:
+            ring = json.loads(doc["boundary_geojson"])
+            comp = extractor.ring_area_m2(ring)
+        except Exception:  # noqa: BLE001
+            comp = None
+    return recorded, comp, doc.get("boundary_source")
+
+
+def _area_verdict(recorded, comp):
+    """(emoji, verdict_text, pct_off) — the same thresholds as the UI badge
+    (✓ within 25%, ⚠ beyond; 🚩 above the implausible-area ceiling)."""
+    if comp is None:
+        return None, None, None
+    if comp > AREA_MAX_PLOT_M2:
+        return "🚩", ("IMPLAUSIBLE — the boundary spans %.0f acres, beyond the "
+                      "~494-acre per-parcel ceiling; the coordinates are wrong"
+                      % (comp / 4046.86)), None
+    rec_m2 = _area_str_to_m2(recorded)
+    if not rec_m2:
+        return "⚪", "computed only (no recorded area text to compare)", None
+    pct = abs(comp - rec_m2) / rec_m2 * 100.0
+    if pct <= 25.0:
+        return "✓", ("MATCHES the recorded area (%.0f%% apart — inside the 25%% "
+                     "tolerance band)" % pct), pct
+    return "⚠", ("MISMATCH — %.0f%% OFF the recorded area%s"
+                 % (pct, " (the upload pipeline auto-flags >50% for review)"
+                    if pct > 50 else "")), pct
+
+
+def _doc_area(did):
+    doc = store.get_document(did)
+    if not doc:
+        return {"type": "search", "results": [],
+                "answer": "I couldn't find document #%s. Check the 12-character ID "
+                          "in the Records tab." % did}
+    recorded, comp, src = _area_facts(doc)
+    srcname = {"document": "4 corner coordinates printed on this NEW-kind record",
+               "digitized": "officer-digitized boundary",
+               "imported": "imported boundary",
+               "estimated": "estimated area-square boundary"}.get(src, "map boundary")
+    lines = ["📐 AREA CROSS-CHECK — record #%s (%s)" % (did, doc.get("filename", "")),
+             "📄 Recorded (OCR'd from the document): %s" % (recorded or "— none printed/extracted —")]
+    if comp is not None:
+        lines.append("📏 Computed (from the %s): %s m² ≈ %.2f acres"
+                     % (srcname, "{:,.0f}".format(comp), comp / 4046.86))
+        emoji, verdict, _pct = _area_verdict(recorded, comp)
+        if verdict:
+            lines.append("Verdict: %s %s" % (emoji, verdict))
+    else:
+        lines.append("📏 Computed: not available — this record has no map boundary yet.")
+        lines.append("How to get one: open 🗺️ Real Map and draw the boundary (or use "
+                     "the Digitize panel), OR upload the record as document kind NEW "
+                     "with its 4 printed corner coordinates — the boundary and this "
+                     "check then happen automatically.")
+    lines.append("📄 Recorded = what the paper claims · 📏 Computed = what the GPS "
+                 "corners measure. A big gap means a data-entry slip — or fraud.")
+    row = _result_row(doc)
+    row["matched"] = ["area cross-check"]
+    return {"type": "search", "answer": "\n".join(lines), "results": [row]}
+
+
+def _area_screen(qn):
+    """Cross-check every boundary-backed record; or answer for one land when a
+    survey number is named ('check the area of survey 145')."""
+    docs = store.list_documents(limit=400)
+    nums = re.findall(r"\b\d{1,4}(?:/\d{1,4})?\b", qn)
+    if nums and not re.search(r"\b(all|every|each|sab|saare|kitne|total)\b", qn):
+        for d in docs:
+            surv = _g(_fields_of(d), "survey_number")
+            for n in nums:
+                nn = n.replace("/", "").replace(".", "")
+                if surv and (n in surv
+                             or (nn and nn == surv.replace("/", "").replace(".", ""))):
+                    return _doc_area(d["id"])
+    mism, matches, computed_only, no_boundary = [], [], 0, 0
+    for d in docs:
+        recorded, comp, _src = _area_facts(d)
+        if comp is None:
+            no_boundary += 1
+            continue
+        emoji, verdict, pct = _area_verdict(recorded, comp)
+        if emoji == "✓":
+            matches.append((pct or 0, d, verdict))
+        elif emoji in ("⚠", "🚩"):
+            mism.append((pct if pct is not None else 9999.0, d, verdict))
+        else:
+            computed_only += 1
+    if not matches and not mism and not computed_only:
+        return {"type": "search", "results": [],
+                "answer": "No record has a map boundary yet, so there is nothing to "
+                          "cross-check. Draw one on 🗺️ Real Map, or upload a NEW-kind "
+                          "document with 4 printed corner coordinates — its boundary "
+                          "is set automatically."}
+    want_matches = (re.search(r"\b(match(ed|es|ing)?|correct|right|consistent|sahi|theek)\b", qn)
+                    and not re.search(r"\b(mismatch|dismatch|not match|differ|galat|wrong|off|discrepanc)\b", qn))
+    head = ("📐 Area cross-check — %d record(s) examined: %d match the recorded area ✓, "
+            "%d mismatch ⚠, %d computed-only (no printed area), %d have no boundary."
+            % (len(matches) + len(mism) + computed_only, len(matches), len(mism),
+               computed_only, no_boundary))
+    show = matches if want_matches else mism
+    lines = [head]
+    if not show:
+        lines.append("🟢 No area mismatches found — every boundary-backed record "
+                     "agrees with its paper area within tolerance." if not want_matches else
+                     "No record's computed area matches a recorded area yet.")
+    else:
+        show.sort(key=lambda t: -t[0])
+        for _pct, d, verdict in show[:6]:
+            f = _fields_of(d)
+            lines.append("· #%s — survey %s, %s — owner %s — %s"
+                         % (d["id"], _g(f, "survey_number") or "?", _g(f, "village") or "?",
+                            _g(f, "owner_name") or "?", verdict))
+        if len(show) > 6:
+            lines.append("…and %d more — ask 'computed area of <record id>' for any of them."
+                         % (len(show) - 6))
+    lines.append("Per-record check: 'area of survey 312' or 'computed area of <record id>'.")
+    rows = []
+    for _pct, d, _v in show[:5]:
+        r = _result_row(d)
+        r["matched"] = ["area cross-check"]
+        rows.append(r)
+    return {"type": "search", "answer": "\n".join(lines), "results": rows}
+
+
 def _stats_features(qn):
     """Statistics for the newer modules (loans, cases, mutations, tasks,
     proposals, risk) — None when the question is not about them."""
@@ -1225,6 +1426,8 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
             return _action_open(did)
         if re.search(RISK_TERMS, qn) or re.search(CASE_TERMS, qn):
             return _doc_risk(did)
+        if re.search(AREA_WORD, qn):
+            return _doc_area(did)
         r = _doc_by_id(did)
         if r["results"]:
             return r
@@ -1253,6 +1456,15 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
             if re.search(pat, qn):
                 return {"type": "help", "results": [],
                         "answer": "You'll find it in %s." % place}
+
+    # 4.4) recorded-vs-computed map area: per-land or whole-database screening.
+    #      'what is the computed area?' style definitional questions fall
+    #      through to the explainer in HELP_FEATURES below.
+    if re.search(AREA_WORD, qn) and re.search(AREA_FOCUS, qn) \
+            and not (re.search(r"\b(what is|what's|kya (hai|hota)|matlab|meaning|"
+                               r"difference between|sunjhao|samjhao|explain)\b", qn)
+                     and not re.search(SEARCH_TRIGGERS, qn)):
+        return _area_screen(qn)
 
     # 4.5) land-level screening: "show records with a loan / court case / risk / fraud"
     if re.search(RISK_TERMS, qn) and re.search(SEARCH_TRIGGERS, qn):
@@ -1293,7 +1505,8 @@ def answer(q: str, user_id: str = None, role: str = None, user: dict = None) -> 
                       "Try: 'How does verification work?', 'What is the encumbrance module?', "
                       "'What do court-case statuses mean?', 'How does fraud risk work?', "
                       "'Which records are risky?', 'How many loans are active?', "
-                      "'Find khatauni of <name>', 'Risk of <record id>', "
+                      "'Which records have an area mismatch?', "
+                      "'Computed area of <record id>', 'Find khatauni of <name>', "
                       "'Compare <id> and <id>', 'What is SA mode?' — "
                       "or 'Show more' after a search."}
 

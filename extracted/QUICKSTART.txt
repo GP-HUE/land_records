@@ -3,6 +3,36 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.13.2 (26-Sep-2026) — AI ASSISTANT: COURT-DATABASE Q&A (SA) + AREA CROSS-CHECK (BOTH AIs)
+The AI assistant learned two judge-favourite question types this release.
+### 1) SA AI — ask ANYTHING about the ⚖️ court cases database (admins only)
+  * In SA mode the assistant now answers plain-language questions over the
+    demo eCourts-style court database itself (not just per-record scans):
+      - "how many cases are in the court database?"      -> status-wise counts
+      - "show stay orders" / "show pending cases"        -> filtered listings
+      - "court cases in Rampur Khas"                     -> village/court/party word match
+      - "which courts are covered?"                      -> court-name breakdown
+      - "any case against Kamla Devi Singh?"             -> party-name lookup
+      - "cases filed in 2022"                            -> filed-year filter
+      - "upcoming hearings in the court database"        -> sorted by next hearing
+      - "details of case CS/2022/0891"                   -> full case card
+  * Every answer ends with the portal's own litigation-ledger counts and the
+    scan tip; every query is logged to the SA Activity Report (COURT_DB_QUERY).
+  * RBAC unchanged: the court database stays admin-only; generic explainer
+    questions ("what do court case statuses mean?") and the existing
+    'how many court cases are active?' (portal ledger) behave exactly as before.
+### 2) BOTH AIs (normal + SA) — 📐 recorded-vs-computed map area in chat
+  * Per record:  "computed area of <record id>" / "area of survey 312"
+    -> 📄 recorded (OCR'd क्षेत्रफल) vs 📏 computed (shoelace over the stored
+    boundary), with the same verdict thresholds as the UI badge
+    (✓ within 25% · ⚠ N% OFF · 🚩 implausible > ~494 acres)
+  * Whole database: "which records have an area mismatch?" / "check the areas"
+    -> screens every boundary-backed record, lists the offenders first
+    ("which records have matching areas?" lists the clean ones)
+  * "details of <record id>" now appends a one-line map-area verdict whenever
+    a boundary exists; "what is computed area?" has its own explainer.
+  * New suite: tests/test_ai_area_courtdb.py — all checks green.
+
 ## WHAT'S NEW IN v3.13.1 (26-Sep-2026) — AREA CROSS-CHECK + FULL NEW-KIND SAMPLE PACK
 The boundary card always showed BOTH areas side by side —
 * 📏 Computed area: geometry of the boundary corners (shoelace formula

@@ -154,6 +154,12 @@ jobs:
           LR_ROOT: ${{ github.workspace }}/extracted
           LR_BASE: http://127.0.0.1:8000
 
+      - name: AI assistant — court-DB Q&A (SA) + area cross-check (both AIs)
+        run: python ../tests/test_ai_area_courtdb.py
+        env:
+          LR_ROOT: ${{ github.workspace }}/extracted
+          LR_BASE: http://127.0.0.1:8000
+
       - name: Full system battery (56 checks incl. multilingual OCR e2e)
         run: python ../tests/full_system_test.py
         env:
