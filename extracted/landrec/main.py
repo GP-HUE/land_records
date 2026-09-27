@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.15.4"
+APP_VERSION = "3.15.5"
 
 
 def _warmup_ocr_worker():
@@ -2805,17 +2805,19 @@ def active_tab_count() -> int:
     return len(_ACTIVE_TABS)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def index():
     return FileResponse(os.path.join(STATIC, "index.html"),
                         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                                  "Pragma": "no-cache", "Expires": "0"})
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     """Lightweight liveness probe (no auth). The web UI polls this to
-    auto-reconnect when the server process has crashed and restarted."""
+    auto-reconnect when the server process has crashed and restarted, and
+    external uptime monitors (UptimeRobot & co.) poke it with HEAD — so both
+    methods must answer or the monitor reports a healthy site as DOWN."""
     return {"ok": True, "ts": time.time()}
 
 

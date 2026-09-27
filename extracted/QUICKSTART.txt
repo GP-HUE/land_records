@@ -3,6 +3,12 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.5 (27-Sep-2026) — UPTIME-MONITOR (HEAD) FIX
+  * /api/health and / now answer HEAD as well as GET. External uptime
+    monitors (UptimeRobot sends HEAD) used to get 405 Method Not Allowed and
+    reported the healthy site as "DOWN" — a false alarm; both endpoints are
+    now monitor-friendly.
+
 ## WHAT'S NEW IN v3.15.4 (27-Sep-2026) — MAP DEFAULTS TO "SHOW: ALL RECORDS"
   * The Land Map tab now opens with EVERYTHING drawn — all record markers
     and every plot boundary (triangle / pentagon / hexagon / octagon …) with
