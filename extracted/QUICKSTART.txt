@@ -3,6 +3,11 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.2 (27-Sep-2026) — UI CLEANUP
+  * Removed the red "default admin password" security banner from the top
+    of the portal interface (the My Account change-password flow itself is
+    unchanged)
+
 ## WHAT'S NEW IN v3.15.1 (27-Sep-2026) — ANY-SHAPE PLOTS BAKED INTO THE DEMO SEED
 ### Shape records now survive every restart / redeploy automatically
   * On hosts with an ephemeral disk (free cloud tiers), a restart or

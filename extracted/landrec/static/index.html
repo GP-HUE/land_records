@@ -1067,11 +1067,6 @@
      MAIN APPLICATION (GOVERNMENT PORTAL UI)
      ========================================== -->
 <div id="appView" class="hidden">
-  <!-- Security warning: default admin password still active -->
-  <div id="secBanner" style="display:none;background:#7f1d1d;color:#fff;padding:10px 20px;font-size:13px;text-align:center">
-    ⚠️ <b>सुरक्षा चेतावनी (Security Warning):</b> डिफ़ॉल्ट एडमिन पासवर्ड (Admin@123) अभी भी सक्रिय है —
-    तुरंत <b>खाता विवरण (My Account)</b> टैब से बदलें। <i>(Default admin password still active — change it now from My Account.)</i>
-  </div>
   <!-- Accessibility Utility Bar -->
   <div class="gov-utility-bar">
     <div class="access-controls">
@@ -2670,9 +2665,8 @@ async function markInstalledLangs(){
 function showApp(){
   $('#authView').classList.add('hidden');
   $('#appView').classList.remove('hidden');
-  // Refresh the session record (carries the default_password flag used by
-  // the security banner).
-  api('/api/auth/me').then(d=>{ me = d.user; refreshSecurityBanner(); }).catch(()=>{});
+  // Refresh the session record.
+  api('/api/auth/me').then(d=>{ me = d.user; }).catch(()=>{});
   // Footer version stamp (was hardcoded - now always matches the running build)
   api('/api/system').then(d=>{ const el=$('#footerVersion'); if(el && d.version) el.textContent = 'System Version: ' + d.version; }).catch(()=>{});
   markInstalledLangs();
@@ -2713,13 +2707,6 @@ function showApp(){
   }
   // AI Task Inbox (role-to-role workflow tasks) for every signed-in user
   mountAiTaskInbox();
-}
-
-function refreshSecurityBanner(){
-  const b = $('#secBanner');
-  if(!b) return;
-  const show = !!(me && me.default_password);
-  b.style.display = show ? 'block' : 'none';
 }
 
 function roleLabel(r){
@@ -6925,7 +6912,6 @@ $('#cpBtn').onclick = async()=>{
     $('#cpMsg').className = 'successbox';
     $('#cpCurrent').value = ''; $('#cpNew').value = '';
     me.default_password = false;
-    refreshSecurityBanner();
   }catch(e){
     $('#cpMsg').textContent = e.message;
     $('#cpMsg').className = 'errorbox';
