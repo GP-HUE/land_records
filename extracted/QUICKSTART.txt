@@ -3,6 +3,15 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.4 (27-Sep-2026) — MAP DEFAULTS TO "SHOW: ALL RECORDS"
+  * The Land Map tab now opens with EVERYTHING drawn — all record markers
+    and every plot boundary (triangle / pentagon / hexagon / octagon …) with
+    the view auto-fitted around them. Previously the map defaulted to "Show:
+    Selected record", which is an EMPTY canvas until you click a record
+    (looked like the plots had vanished to a first-time user after every
+    restart). The toggle is unchanged — pick "Selected record" whenever you
+    want to focus one plot; your choice still persists per browser.
+
 ## WHAT'S NEW IN v3.15.3 (27-Sep-2026) — CLOUD COLD-START FIX
   * Free cloud instances (Render) that wake from sleep on a tight boot
     window could fail to come back: the OCR pre-warm spawned the heavy

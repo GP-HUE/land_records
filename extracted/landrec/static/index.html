@@ -1659,8 +1659,8 @@
             <select id="mapShowMode" onchange="mapSetShowMode(this.value)"
               title="Which record positions to draw on the map"
               style="font-size:12px;padding:7px 8px;border:1px solid var(--gov-border);border-radius:6px;background:#fff">
-              <option value="selected">📍 Show: Selected record</option>
               <option value="all">🌍 Show: All records</option>
+              <option value="selected">📍 Show: Selected record</option>
             </select>
             <button class="btn ghost" id="mapAreaConflictBtn" onclick="mapToggleAreaConflicts()"
               title="Records where the boundary-computed area differs from the recorded area by more than 5% — with a coordinate editor">⚠ Area mismatch records</button>
@@ -4141,10 +4141,13 @@ let mapTileLayer = null;
 // Which record positions to draw: 'selected' (only the currently selected
 // record — the map stays clean, no stray dots) or 'all' (every located
 // record — the whole-village GIS view). Persisted per browser.
-let mapShowMode = 'selected';
+// default = ALL records: a freshly-opened map must show every plot (markers
+// + all boundaries incl. the seeded shape plots) — "selected record" mode
+// with nothing selected used to look like an EMPTY map to a first-time user
+let mapShowMode = 'all';
 function mapGetShowMode(){
   try { const v = localStorage.getItem('lrMapShowMode'); if(v === 'all' || v === 'selected') return v; } catch(e){}
-  return 'selected';
+  return 'all';
 }
 function mapSetShowMode(m){
   mapShowMode = (m === 'all') ? 'all' : 'selected';
