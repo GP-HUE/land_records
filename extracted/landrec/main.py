@@ -38,7 +38,7 @@ _START_TIME = time.time()
 # Build version — shown in the UI footer and the System Status panel.
 # Bump this every time a new zip is released so users can instantly tell
 # whether their local .exe is the current build or an old one.
-APP_VERSION = "3.15.2"
+APP_VERSION = "3.15.3"
 
 
 def _warmup_ocr_worker():
@@ -57,8 +57,17 @@ def _warmup_ocr_worker():
         pass
 
 
-threading.Thread(target=_warmup_ocr_worker, daemon=True,
-                 name="ocr-warmup").start()
+# cloud hosts (Render sets RENDER=true; free instances wake from sleep on a
+# tight boot window and only 512MB RAM): the pre-warm spawns the heavy OCR
+# process + loads 5 Tesseract models DURING boot, which can OOM or outlast
+# the health check, so a sleeping instance never comes back. There the
+# worker starts lazily on the first upload instead (small one-time delay).
+if os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"):
+    log.info("cloud host detected (RENDER) - OCR pre-warm skipped; "
+             "worker will spawn lazily on the first upload")
+else:
+    threading.Thread(target=_warmup_ocr_worker, daemon=True,
+                     name="ocr-warmup").start()
 
 
 def _first_boot_demo_seed():

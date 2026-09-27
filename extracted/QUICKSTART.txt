@@ -3,6 +3,15 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.3 (27-Sep-2026) — CLOUD COLD-START FIX
+  * Free cloud instances (Render) that wake from sleep on a tight boot
+    window could fail to come back: the OCR pre-warm spawned the heavy
+    Tesseract worker + 5 language models DURING boot (CPU + RAM spike right
+    in the health-check window). On cloud hosts (RENDER env detected) the
+    pre-warm is now skipped — the worker spawns lazily on the first upload
+    instead, so /api/health answers within seconds of boot. Local desktop /
+    .exe behaviour is unchanged (pre-warm still runs).
+
 ## WHAT'S NEW IN v3.15.2 (27-Sep-2026) — UI CLEANUP
   * Removed the red "default admin password" security banner from the top
     of the portal interface (the My Account change-password flow itself is
