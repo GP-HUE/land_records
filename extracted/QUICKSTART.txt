@@ -3,6 +3,25 @@
 
 An AI-powered, multi-user web application for digitizing legacy land records.
 
+## WHAT'S NEW IN v3.15.1 (27-Sep-2026) — ANY-SHAPE PLOTS BAKED INTO THE DEMO SEED
+### Shape records now survive every restart / redeploy automatically
+  * On hosts with an ephemeral disk (free cloud tiers), a restart or
+    redeploy resets the database to the demo seed — uploaded demo content
+    used to vanish and had to be re-uploaded by hand
+  * v3.15.1 bakes FIVE NEW-kind any-shape records into the demo seed itself:
+      - triangle (3 corners, Berasia 264, 1.2 acre)      — verified
+      - pentagon (5 corners, Sukhi Sewaniya 655, 2.1 ac) — verified
+      - hexagon  (6 corners, Kaliasot 507, 1.6 ac)       — verified
+      - octagon  (8 corners, Barkhedi Abdulla 812, 2.4)  — verified
+      - torn 2-corner scan (Ratua Ryt 41)                — review queue,
+        intentionally NO boundary (a polygon needs 3+ corners)
+  * Geometry uses the same exact regular-n-gon math as the matching sample
+    scans, so computed area == printed area (well inside the 5% band, all
+    green on the map) and each seeded record carries its original scan +
+    coordinate_1..N fields, a centroid pin and boundary_source "document"
+  * After ANY wipe/restart (local, CI, cloud) the Map tab immediately shows
+    the full polygon zoo — zero re-staging needed
+
 ## WHAT'S NEW IN v3.15.0 (26-Sep-2026) — ANY NUMBER OF COORDINATES (ANY POLYGON)
 ### NEW-kind documents: corner count is no longer capped at 5
   * Earlier releases OCR'd the printed GPS corners into coordinate_1..5, so

@@ -490,6 +490,36 @@ check("P10 octagon area_acres ~2.4 (inside the 5% band)",
       and abs(co8["area_acres"] - 2.4) / 2.4 <= 0.05
       and co8.get("area_mismatch") is False, co8)
 
+# --------------- Q. v3.15.1 shapes baked into the demo SEED -----------------
+print("\n[Q] v3.15.1 any-shape plots baked into the demo seed (restart-proof)")
+s, d_recs = http(BASE, "GET", "/api/map/records", tok=op)
+seed_rows = {r["id"]: r for r in (d_recs or {}).get("records", [])}
+Q_SEED = {"3c0a71e51a01": ("triangle", 3), "3c0a71e51a02": ("pentagon", 5),
+          "3c0a71e51a03": ("hexagon", 6), "3c0a71e51a04": ("octagon", 8)}
+for i, (sid, (label, verts)) in enumerate(sorted(Q_SEED.items()), 1):
+    row = seed_rows.get(sid)
+    check("Q%d seeded %s: kind=new, source=document, %d verts, pin set" % (i, label, verts),
+          row and row.get("kind") == "new"
+          and row.get("boundary_source") == "document"
+          and len(row.get("boundary") or []) == verts
+          and row.get("lat") is not None, row)
+row5 = seed_rows.get("3c0a71e51a05")
+check("Q5 seeded torn-2-corner: kind=new, review case, NO boundary",
+      row5 and row5.get("kind") == "new" and row5.get("boundary") is None,
+      row5)
+s, d_q5 = http(BASE, "GET", "/api/documents/3c0a71e51a05", tok=op)
+check("Q6 torn record sits in the review queue with a coordinates issue",
+      s == 200 and d_q5.get("status") == "pending_review"
+      and any(i.get("field") == "coordinates"
+              for i in (d_q5.get("validation") or {}).get("issues", [])),
+      (s, d_q5.get("status")))
+s, d_qh = http(BASE, "GET", "/api/documents/3c0a71e51a03", tok=op)
+_qhf = (d_qh.get("fields") or {})
+check("Q7 seeded hexagon carries coordinate_1..6 fields (verify form ready)",
+      all(("coordinate_%d" % i) in _qhf for i in range(1, 7))
+      and parse_coordinate((_qhf.get("coordinate_6") or {}).get("value", ""))
+      is not None, sorted(k for k in _qhf if k.startswith("coordinate_")))
+
 # --------------------------------------------------------------- J. statics
 print("\n[J] static wiring")
 html = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
@@ -538,6 +568,13 @@ check("J11 any-N machinery: corner slots beyond 5 (MAX_CORNERS generator + "
       and "common.MAX_CORNERS" in extpy and "_repair_value_digits" in extpy
       and "for(let _ci=6;_ci<=20" in html
       and "for(let _ci=1;_ci<=20" in html)
+seedpy = open(os.path.join(os.path.dirname(__file__), "..", "extracted",
+                           "landrec", "seed_demo.py"), encoding="utf-8").read()
+check("J12 shapes baked into the demo seed (DEMO_SHAPE_RECORDS + doc_kind "
+      "column in the seed insert)",
+      "DEMO_SHAPE_RECORDS" in seedpy and "_poly_corners" in seedpy
+      and "doc_kind" in seedpy
+      and "khatauni_newkind_hexagon_2025.png" in seedpy)
 check("J8 5% mismatch tolerance wired (UI badge + pipeline guard)",
       "pct <= 5" in html and "_AREA_MISMATCH_TOL" in mainpy)
 check("J9 map tab: 'Area mismatch records' panel + coordinate editor modal",

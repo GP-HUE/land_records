@@ -42,6 +42,161 @@ from . import paths
 
 SAMPLES = os.path.join(paths.resource_dir(), "samples")
 
+
+# --------------------------------------------------------------------------
+# v3.15.1: the any-shape NEW-kind records are baked INTO the demo seed, so
+# every fresh boot (local run, CI, or a cloud redeploy with an ephemeral
+# disk) already shows the triangle / pentagon / hexagon / octagon plots on
+# the map — no manual re-uploading after a restart.  Geometry is generated
+# with the very same regular-n-gon math as the matching sample scans, so
+# computed area == the recorded printed area (inside the 5% tolerance).
+# --------------------------------------------------------------------------
+_M_PER_DEG_LAT = 111320.0
+_ACRE_M2 = 4046.86
+
+
+def _poly_corners(center_lat, center_lon, area_m2, n, rotation_deg=0.0):
+    """N corners (ring order) of a REGULAR n-gon of EXACTLY area_m2 around
+    (center_lat, center_lon) — triangle(3), pentagon(5), hexagon(6),
+    octagon(8), any plot shape."""
+    import math
+    r = math.sqrt(2.0 * area_m2 / (n * math.sin(2.0 * math.pi / n)))
+    mlon = _M_PER_DEG_LAT * math.cos(math.radians(center_lat))
+    pts = []
+    for k in range(n):
+        th = math.radians(rotation_deg) + 2.0 * math.pi * k / n
+        pts.append((center_lat + (r * math.sin(th)) / _M_PER_DEG_LAT,
+                    center_lon + (r * math.cos(th)) / mlon))
+    return pts
+
+
+def _shape_record(doc_id, sample, owner, father, village, tehsil, survey,
+                  khasra, khata, area_ac, land_class, mut_no, reg_no,
+                  center_lat, center_lon, n_sides, rotation_deg, age_h,
+                  only_corners=None):
+    """One seeded NEW-kind record whose 'printed on document' boundary is an
+    exact n-sided plot (3/4/5/6/8 …).  only_corners=2 simulates the torn-scan
+    case (two readable corners -> review queue, NO boundary)."""
+    coords = _poly_corners(center_lat, center_lon, area_ac * _ACRE_M2,
+                           n_sides, rotation_deg)
+    torn = only_corners is not None and only_corners < n_sides
+    shown = coords[:only_corners] if torn else coords
+    ring = None if torn else [[round(a, 6), round(b, 6)] for a, b in shown]
+    fields = {
+        'owner_name': {'value': owner, 'quality': 0.9, 'confidence': 0.93},
+        'father_name': {'value': father, 'quality': 0.9, 'confidence': 0.88},
+        'survey_number': {'value': survey, 'quality': 0.9,
+                          'digits': ''.join(c for c in survey if c.isdigit()),
+                          'confidence': 0.93},
+        'khasra_number': {'value': khasra, 'quality': 0.9,
+                          'digits': ''.join(c for c in khasra if c.isdigit()),
+                          'confidence': 0.93},
+        'khata_number': {'value': khata, 'quality': 0.9,
+                         'digits': ''.join(c for c in khata if c.isdigit()),
+                         'confidence': 0.93},
+        'area': {'value': '%.1f acre' % area_ac, 'quality': 0.9,
+                 'num_value': area_ac, 'unit': 'acre', 'confidence': 0.9},
+        'village': {'value': village, 'quality': 0.9, 'confidence': 0.92},
+        'tehsil': {'value': tehsil, 'quality': 0.9, 'confidence': 0.92},
+        'district': {'value': 'Bhopal', 'quality': 0.9, 'confidence': 0.93},
+        'state': {'value': 'Madhya Pradesh', 'quality': 0.9,
+                  'confidence': 0.93},
+        'land_class': {'value': land_class, 'quality': 0.9,
+                       'confidence': 0.88},
+        'ownership_type': {'value': 'Private', 'quality': 0.9,
+                           'confidence': 0.9},
+        'mutation_no': {'value': mut_no, 'quality': 0.9,
+                        'digits': mut_no, 'confidence': 0.93},
+        'registration_no': {'value': reg_no, 'quality': 0.9,
+                            'digits': ''.join(c for c in reg_no
+                                              if c.isdigit()),
+                            'confidence': 0.92},
+        'khatauni_year': {'value': '2024-25', 'quality': 0.9,
+                          'digits': '202425', 'confidence': 0.93},
+    }
+    for i, (a, b) in enumerate(shown, 1):
+        fields['coordinate_%d' % i] = {
+            'value': '%.5f N, %.5f E' % (a, b), 'quality': 0.9,
+            'confidence': 0.89}
+    co_lines = '\n'.join('Coordinate %d: %.5f N, %.5f E'
+                         % (i, a, b) for i, (a, b) in enumerate(shown, 1))
+    if torn:
+        validation = {
+            'issues': [{'field': 'coordinates', 'severity': 'review',
+                        'msg': 'NEW-kind record: 2 of %d printed corner '
+                               'coordinate(s) readable — the map boundary '
+                               'needs at least 3 and every one of them; '
+                               'verify them before approval' % n_sides}],
+            'verdict': 'review', 'low_confidence_fields': ['coordinates']}
+        verdict, status = 'review', 'pending_review'
+    else:
+        validation = {'issues': [], 'verdict': 'valid',
+                      'low_confidence_fields': []}
+        verdict, status = 'valid', 'verified'
+    clat = round(sum(p[0] for p in shown) / len(shown), 7)
+    clon = round(sum(p[1] for p in shown) / len(shown), 7)
+    return {
+        'id': doc_id,
+        'filename': sample,
+        'sample': sample,
+        'doc_type': 'land_record',
+        'doc_kind': 'new',
+        'status': status,
+        'mean_conf': 93.6,
+        'languages': '[]',
+        'ocr_text': ('JAMABANDI / KHATAUNI CERTIFICATE (NEW FORMAT)\n'
+                     'State: Madhya Pradesh\nDistrict: Bhopal\n'
+                     'Tehsil: %s\nVillage: %s\n\nKhata Number: %s\n'
+                     'Khasra Number: %s\nSurvey Number: %s\n'
+                     'Landowner Name: %s\nFather\'s Name: %s\n\n'
+                     'Area: %.1f acre\nLand Type: %s\nOwnership: Private\n\n'
+                     'Mutation Number: %s\nRegistration Number: %s\n'
+                     'Khatauni Year: 2024-25\n\n'
+                     'Geo Coordinates of Parcel Corners (GPS Survey):\n%s\n'
+                     % (tehsil, village, khata, khasra, survey, owner,
+                        father, area_ac, land_class, mut_no, reg_no,
+                        co_lines)),
+        'fields': fields,
+        'validation': validation,
+        'verdict': verdict,
+        'lat': clat,
+        'lon': clon,
+        'boundary': ring,
+        'boundary_source': 'document' if ring else None,
+        'routed': False,
+        'age_h': age_h,
+    }
+
+
+DEMO_SHAPE_RECORDS = [
+    _shape_record('3c0a71e51a01', 'khatauni_newkind_triangle_2025.png',
+                  'Santosh Kumar Ahirwar', 'Ramdayal Ahirwar',
+                  'Berasia', 'Berasia', '264', '9/1', '71', 1.2,
+                  'Irrigated Agricultural', '3307', 'MP/2025/0914',
+                  23.43150, 77.43250, 3, 18, 31),
+    _shape_record('3c0a71e51a02', 'khatauni_newkind_pentagon_2025.png',
+                  'Ramnath Kushwaha', 'Bholaram Kushwaha',
+                  'Sukhi Sewaniya', 'Huzur', '655', '16/2', '83', 2.1,
+                  'Irrigated Agricultural', '5566', 'MP/2025/1871',
+                  23.17625, 77.31875, 5, 60, 32),
+    _shape_record('3c0a71e51a03', 'khatauni_newkind_hexagon_2025.png',
+                  'Kailash Narayan Sahu', 'Mangilal Sahu',
+                  'Kaliasot', 'Huzur', '507', '7/3', '44', 1.6,
+                  'Irrigated Agricultural', '6612', 'MP/2025/2280',
+                  23.35280, 77.18640, 6, 12, 33),
+    _shape_record('3c0a71e51a04', 'khatauni_newkind_octagon_2025.png',
+                  'Shakuntala Bai Rajput', 'Harisingh Rajput',
+                  'Barkhedi Abdulla', 'Berasia', '812', '11/2', '19', 2.4,
+                  'Non-Irrigated Agricultural', '7741', 'MP/2025/3355',
+                  23.29750, 77.35660, 8, 22, 34),
+    _shape_record('3c0a71e51a05', 'khatauni_newkind_2corners_2025.png',
+                  'Jagdish Prasad Meena', 'Kalyan Singh Meena',
+                  'Ratua Ryt', 'Huzur', '41', '3/5', '12', 1.0,
+                  'Non-Irrigated Agricultural', '2210', 'MP/2025/0446',
+                  23.35075, 77.21975, 4, 45, 35, only_corners=2),
+]
+
+
 DEMO_ACCOUNTS = [
     ("demo.admin@demo.local", "Demo@Admin1", "Demo Admin", "admin"),
     ("demo.operator@demo.local", "Demo@Operator1", "Demo Data Officer", "operator"),
@@ -630,8 +785,10 @@ def seed_demo_data(force=False):
     os.makedirs(store.UPLOAD_DIR, exist_ok=True)
 
     # ---- documents (oldest first, like a lived-in office) ----
+    # DEMO_SHAPE_RECORDS = the baked-in NEW-kind any-shape plots (v3.15.1)
     created = 0
-    for rec in sorted(DEMO_RECORDS, key=lambda r: -r["age_h"]):
+    for rec in sorted(list(DEMO_RECORDS) + list(DEMO_SHAPE_RECORDS),
+                      key=lambda r: -r["age_h"]):
         doc_id = rec["id"]
         stored_path = os.path.join(
             store.UPLOAD_DIR, "seed_%s_%s" % (doc_id, os.path.basename(rec["sample"])))
@@ -646,8 +803,8 @@ def seed_demo_data(force=False):
         c.execute("""INSERT INTO documents
             (id, filename, stored_path, mime_type, file_size, uploaded_by, uploaded_at,
              ocr_text, mean_conf, languages, extracted_json, validation_json, verdict,
-             status, dedup_key, doc_type, reviewer_notes, submitted_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             status, dedup_key, doc_type, reviewer_notes, submitted_at, doc_kind)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                   (doc_id, rec["filename"],
                    stored_path if os.path.exists(stored_path) else "",
                    "application/pdf" if rec["filename"].lower().endswith(".pdf") else "image/png",
@@ -655,7 +812,8 @@ def seed_demo_data(force=False):
                    rec["ocr_text"],
                    rec["mean_conf"], rec["languages"], fjson, vjson,
                    rec["verdict"], status, "", rec["doc_type"], "",
-                   ts if status != "draft" else None))
+                   ts if status != "draft" else None,
+                   rec.get("doc_kind", "old")))
         c.commit()
         c.close()
         created += 1
